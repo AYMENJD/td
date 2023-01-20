@@ -1,0 +1,142 @@
+name: Build TDLib
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "master"
+
+    paths:
+      - "CMakeLists.txt"
+
+jobs:
+  Check:
+    runs-on: ubuntu-22.04
+
+    outputs:
+      run_jobs: ${{ steps.check.outputs.run_jobs }}
+
+    steps:
+      - name: Check commits
+        id: check
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run_jobs=true" >> $GITHUB_OUTPUT
+          else
+
+            echo "run_jobs=false" >> $GITHUB_OUTPUT
+
+            git clone https://github.com/${{ github.repository }}
+            cd td/
+
+            GIT_DIFF=$(git --no-pager diff --unified=0 ${{ github.event.before }} CMakeLists.txt)
+
+            SED_REGEX="project\(TDLib VERSION ([0-9\.]+) LANGUAGES CXX C\)"
+
+            OLD_TDLIB_VERSION=$(echo "${GIT_DIFF}" | sed -nr "s/\-$SED_REGEX/\1/p")
+            NEW_TDLIB_VERSION=$(echo "${GIT_DIFF}" | sed -nr "s/\+$SED_REGEX/\1/p")
+
+            if [ ! -z "${OLD_TDLIB_VERSION}" ] && [ ! -z "${NEW_TDLIB_VERSION}" ] && 
+               [ "${OLD_TDLIB_VERSION}" != "${NEW_TDLIB_VERSION}" ]; then
+              echo "run_jobs=true" >> $GITHUB_OUTPUT
+            fi
+
+          fi
+
+  Ubuntu-build:
+    needs: Check
+    if: needs.Check.outputs.run_jobs == 'true'
+
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Increase swap
+        run: |
+          free -h
+          export SWAP_PATH=$(sudo swapon --show=NAME | tail -1)
+          sudo swapoff -a
+          sudo fallocate -l 7G $SWAP_PATH
+          sudo mkswap $SWAP_PATH
+          sudo swapon $SWAP_PATH
+          free -h
+
+      - name: Install TDLib
+        run: |
+          sudo apt-get update
+          sudo apt-get install make git zlib1g-dev libssl-dev gperf php-cli cmake clang-14 libc++-dev libc++abi-dev -y
+          git clone https://github.com/tdlib/td.git
+          cd td
+          rm -rf build
+          mkdir build
+
+      - name: Compile
+        run: |
+          cd td/build
+          CXXFLAGS="-stdlib=libc++" CC=/usr/bin/clang-14 CXX=/usr/bin/clang++-14 cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX:PATH=../tdlib ..
+          cmake --build . --target prepare_cross_compiling
+          cmake --build . --target install -j45
+
+      - name: Run Tests
+        run: |
+          cd td/build/test
+          ./run_all_tests
+
+  Windows-build:
+    needs: Check
+    if: needs.Check.outputs.run_jobs == 'true'
+
+    runs-on: windows-2022
+
+    steps:
+      - name: Install TDLib and vcpkg
+        shell: bash
+        run: |
+          git clone https://github.com/tdlib/td.git
+          cd td
+          git clone https://github.com/Microsoft/vcpkg.git
+          cd vcpkg
+          git checkout 1b1ae50e1a69f7c659bd7d731e80b358d21c86ad
+          ./bootstrap-vcpkg.bat
+          ./vcpkg.exe install gperf:x64-windows openssl:x64-windows zlib:x64-windows
+          cd ..
+          rm -rf build
+          mkdir build
+
+      - name: Compile
+        shell: bash
+        run: |
+          cd td/build
+          cmake -A x64 -DCMAKE_INSTALL_PREFIX:PATH=../tdlib -DCMAKE_TOOLCHAIN_FILE:FILEPATH=../vcpkg/scripts/buildsystems/vcpkg.cmake ..
+          cmake --build . --target install --config Release -j3
+
+      - name: Run Tests
+        shell: bash
+        run: |
+          cd td/build/test/Release
+          ./run_all_tests.exe
+
+  Macos-build:
+    needs: Check
+    if: needs.Check.outputs.run_jobs == 'true'
+
+    runs-on: macos-12
+
+    steps:
+      - name: Install TDLib
+        run: |
+          brew install gperf
+          git clone https://github.com/tdlib/td.git
+          cd td
+          rm -rf build
+          mkdir build
+
+      - name: Compile
+        run: |
+          cd td/build
+          cmake -DCMAKE_BUILD_TYPE=Release -DOPENSSL_ROOT_DIR=/usr/local/opt/openssl/ -DCMAKE_INSTALL_PREFIX:PATH=../tdlib ..
+          cmake --build . --target install -j3
+
+      - name: Run Tests
+        run: |
+          cd td/build/test
+          ./run_all_tests
