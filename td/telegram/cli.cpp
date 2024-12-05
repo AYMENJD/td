@@ -7566,6 +7566,7 @@ void main(int argc, char **argv) {
   bool use_test_dc = false;
   bool get_chat_list = false;
   bool disable_network = false;
+  bool need_print_version = false;
   auto api_id = [](auto x) -> int32 {
     if (x) {
       return to_integer<int32>(Slice(x));
@@ -7581,6 +7582,7 @@ void main(int argc, char **argv) {
 
   OptionParser options;
   options.set_description("TDLib test client");
+  options.add_option('V', "version", "Print TDLib version and exit", [&] { need_print_version = true; });
   options.add_option('\0', "test", "Use test DC", [&] { use_test_dc = true; });
   options.add_option('v', "verbosity", "Set verbosity level", [&](Slice level) {
     int new_verbosity = 1;
@@ -7610,6 +7612,21 @@ void main(int argc, char **argv) {
     return Status::OK();
   });
   auto r_non_options = options.run(argc, argv, 0);
+  if (need_print_version) {
+    auto version = ClientActor::execute(td_api::make_object<td_api::getOption>("version"));
+    CHECK(version->get_id() == td_api::optionValueString::ID);
+
+    std::string commit_hash_str = "Unknown";
+    auto commit_hash = ClientActor::execute(td_api::make_object<td_api::getOption>("commit_hash"));
+    if (commit_hash->get_id() == td_api::optionValueString::ID){
+      commit_hash_str = static_cast<const td_api::optionValueString *>(commit_hash.get())->value_;
+    }
+
+    LOG(PLAIN) << "TDLib v"
+               << static_cast<const td_api::optionValueString *>(version.get())->value_
+               << " (commit_hash: " << commit_hash_str << ")";
+    return;
+  }
   if (r_non_options.is_error()) {
     LOG(PLAIN) << argv[0] << ": " << r_non_options.error().message();
     LOG(PLAIN) << options;
