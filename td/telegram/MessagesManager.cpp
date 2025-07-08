@@ -10984,9 +10984,9 @@ std::pair<DialogId, unique_ptr<MessagesManager::Message>> MessagesManager::creat
   }
 
   bool hide_edit_date = message_info.hide_edit_date;
-  if (hide_edit_date && is_bot) {
-    hide_edit_date = false;
-  }
+  // if (hide_edit_date && is_bot) {
+  //   hide_edit_date = false;
+  // }
   if (hide_edit_date && content_type == MessageContentType::LiveLocation) {
     hide_edit_date = false;
   }
