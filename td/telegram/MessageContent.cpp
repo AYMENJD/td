@@ -4655,33 +4655,6 @@ telegram_api::object_ptr<telegram_api::InputMedia> get_message_content_input_med
   return input_media;
 }
 
-telegram_api::object_ptr<telegram_api::InputMedia> get_message_content_fake_input_media(
-    Td *td, telegram_api::object_ptr<telegram_api::InputFile> input_file, FileId file_id) {
-  FileView file_view = td->file_manager_->get_file_view(file_id);
-  auto file_type = file_view.get_type();
-  if (is_document_file_type(file_type)) {
-    vector<telegram_api::object_ptr<telegram_api::DocumentAttribute>> attributes;
-    auto file_path = file_view.suggested_path();
-    const PathView path_view(file_path);
-    Slice file_name = path_view.file_name();
-    if (!file_name.empty()) {
-      attributes.push_back(telegram_api::make_object<telegram_api::documentAttributeFilename>(file_name.str()));
-    }
-    string mime_type = MimeType::from_extension(path_view.extension());
-    auto nosound_video = (file_type == FileType::Video || file_type == FileType::VideoStory ||
-                          file_type == FileType::SelfDestructingVideo);
-    auto force_file = (file_type == FileType::DocumentAsFile);
-    return telegram_api::make_object<telegram_api::inputMediaUploadedDocument>(
-        0, nosound_video, force_file, false, std::move(input_file), nullptr, mime_type, std::move(attributes),
-        vector<telegram_api::object_ptr<telegram_api::InputDocument>>(), nullptr, 0, 0);
-  } else {
-    CHECK(file_type == FileType::Photo || file_type == FileType::PhotoStory ||
-          file_type == FileType::SelfDestructingPhoto);
-    return telegram_api::make_object<telegram_api::inputMediaUploadedPhoto>(
-        0, false, std::move(input_file), vector<telegram_api::object_ptr<telegram_api::InputDocument>>(), 0);
-  }
-}
-
 telegram_api::object_ptr<telegram_api::InputMedia> get_message_content_input_media_web_page(
     const Td *td, const MessageContent *content) {
   CHECK(content != nullptr);
@@ -9382,7 +9355,8 @@ td_api::object_ptr<td_api::MessageContent> get_message_content_object(
       StarGiftId star_gift_id;
       if (m->owner_dialog_id != DialogId()) {
         star_gift_id = StarGiftId(m->owner_dialog_id, m->saved_id);
-      } else if (dialog_id.get_type() == DialogType::User && m->is_upgrade == is_outgoing && is_server &&
+      } else if (dialog_id.get_type() == DialogType::User &&
+                 m->is_upgrade == (is_outgoing || dialog_id == td->dialog_manager_->get_my_dialog_id()) && is_server &&
                  message_id.is_server()) {
         auto user_id = dialog_id.get_user_id();
         if (user_id != UserManager::get_service_notifications_user_id() || m->is_upgrade) {
@@ -9695,16 +9669,6 @@ vector<const Photo *> get_message_content_need_to_upload_covers(Td *td, const Me
       break;
   }
   return {};
-}
-
-const Photo *get_message_content_photo(const MessageContent *content) {
-  switch (content->get_type()) {
-    case MessageContentType::Photo:
-      return &static_cast<const MessagePhoto *>(content)->photo;
-    default:
-      break;
-  }
-  return nullptr;
 }
 
 FileId get_message_content_any_file_id(const MessageContent *content) {

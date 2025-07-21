@@ -827,7 +827,7 @@ animatedChatPhoto length:int32 file:file main_frame_timestamp:double = AnimatedC
 //@minithumbnail Photo minithumbnail; may be null
 //@sizes Available variants of the photo in JPEG format, in different size
 //@animation A big (up to 1280x1280) animated variant of the photo in MPEG4 format; may be null
-//@small_animation A small (160x160) animated variant of the photo in MPEG4 format; may be null even the big animation is available
+//@small_animation A small (160x160) animated variant of the photo in MPEG4 format; may be null even if the big animation is available
 //@sticker Sticker-based version of the chat photo; may be null
 chatPhoto id:int64 added_date:int32 minithumbnail:minithumbnail sizes:vector<photoSize> animation:animatedChatPhoto small_animation:animatedChatPhoto sticker:chatPhotoSticker = ChatPhoto;
 
@@ -2369,8 +2369,8 @@ sponsoredChats chats:vector<sponsoredChat> = SponsoredChats;
 //@description Describes an advertisent to be shown while a video from a message is watched
 //@unique_id Unique identifier of this result
 //@text Text of the advertisement
-//@min_display_duration The minimum amount of time the advertisement must be dispalyed before it can be hidden by the user, in seconds
-//@max_display_duration The maximum amount of time the advertisement must be dispalyed before it must be automatically hidden, in seconds
+//@min_display_duration The minimum amount of time the advertisement must be displayed before it can be hidden by the user, in seconds
+//@max_display_duration The maximum amount of time the advertisement must be displayed before it must be automatically hidden, in seconds
 //@can_be_reported True, if the advertisement can be reported to Telegram moderators through reportVideoMessageAdvertisement
 //@sponsor Information about the sponsor of the advertisement
 //@title Title of the sponsored message
@@ -2657,7 +2657,7 @@ videoChat group_call_id:int32 has_participants:Bool default_participant_id:Messa
 //@permissions Actions that non-administrator chat members are allowed to take in the chat
 //@last_message Last message in the chat; may be null if none or unknown
 //@positions Positions of the chat in chat lists
-//@chat_lists Chat lists to which the chat belongs. A chat can have a non-zero position in a chat list even it doesn't belong to the chat list and have no position in a chat list even it belongs to the chat list
+//@chat_lists Chat lists to which the chat belongs. A chat can have a non-zero position in a chat list even if it doesn't belong to the chat list and have no position in a chat list even if it belongs to the chat list
 //@message_sender_id Identifier of a user or chat that is selected to send messages in the chat; may be null if the user can't change message sender
 //@block_list Block list to which the chat is added; may be null if none
 //@has_protected_content True, if chat content can't be saved locally, forwarded, or copied
@@ -6507,7 +6507,7 @@ premiumFeatureSavedMessagesTags = PremiumFeature;
 //-and to restrict incoming messages from non-contacts using setNewChatPrivacySettings
 premiumFeatureMessagePrivacy = PremiumFeature;
 
-//@description The ability to view last seen and read times of other users even they can't view last seen or read time for the current user
+//@description The ability to view last seen and read times of other users even if they can't view last seen or read time for the current user
 premiumFeatureLastSeenTimes = PremiumFeature;
 
 //@description The ability to use Business features
@@ -8804,7 +8804,7 @@ updateGroupCallParticipant group_call_id:int32 participant:groupCallParticipant 
 //@description The list of group call participants that can send and receive encrypted call data has changed; for group calls not bound to a chat only
 //@group_call_id Identifier of the group call
 //@participant_user_ids New list of group call participant user identifiers. The identifiers may be invalid or the corresponding users may be unknown.
-//-The participants must be shown in the list of group call participants even there is no information about them
+//-The participants must be shown in the list of group call participants even if there is no information about them
 updateGroupCallParticipants group_call_id:int32 participant_user_ids:vector<int64> = Update;
 
 //@description The verification state of an encrypted group call has changed; for group calls not bound to a chat only
@@ -10239,7 +10239,7 @@ setBusinessAccountBio business_connection_id:string bio:string = Ok;
 //@description Changes a profile photo of a business account; for bots only
 //@business_connection_id Unique identifier of business connection
 //@photo Profile photo to set; pass null to remove the photo
-//@is_public Pass true to set the public photo, which will be visible even the main photo is hidden by privacy settings
+//@is_public Pass true to set the public photo, which will be visible even if the main photo is hidden by privacy settings
 setBusinessAccountProfilePhoto business_connection_id:string photo:InputChatPhoto is_public:Bool = Ok;
 
 //@description Changes the editable username of a business account; for bots only
@@ -10765,7 +10765,7 @@ closeChat chat_id:int53 = Ok;
 //@chat_id Chat identifier
 //@message_ids The identifiers of the messages being viewed
 //@source Source of the message view; pass null to guess the source based on chat open state
-//@force_read Pass true to mark as read the specified messages even the chat is closed
+//@force_read Pass true to mark as read the specified messages even if the chat is closed
 viewMessages chat_id:int53 message_ids:vector<int53> source:MessageSource force_read:Bool = Ok;
 
 //@description Informs TDLib that the message content has been opened (e.g., the user has opened a photo, video, document, location or venue, or has listened to an audio file or voice note message).
@@ -11383,7 +11383,7 @@ getThemedChatEmojiStatuses = EmojiStatusCustomEmojis;
 //@description Returns default emoji statuses for chats
 getDefaultChatEmojiStatuses = EmojiStatusCustomEmojis;
 
-//@description Returns the list of emoji statuses, which can't be used as chat emoji status, even they are from a sticker set with is_allowed_as_chat_emoji_status == true
+//@description Returns the list of emoji statuses, which can't be used as chat emoji status, even if they are from a sticker set with is_allowed_as_chat_emoji_status == true
 getDisallowedChatEmojiStatuses = EmojiStatusCustomEmojis;
 
 
@@ -12070,7 +12070,7 @@ getWebPageInstantView url:string only_local:Bool = WebPageInstantView;
 
 //@description Changes a profile photo for the current user
 //@photo Profile photo to set
-//@is_public Pass true to set the public photo, which will be visible even the main photo is hidden by privacy settings
+//@is_public Pass true to set the public photo, which will be visible even if the main photo is hidden by privacy settings
 setProfilePhoto photo:InputChatPhoto is_public:Bool = Ok;
 
 //@description Deletes a profile photo @profile_photo_id Identifier of the profile photo to delete

@@ -132,6 +132,7 @@ class UploadCoverQuery final : public Td::ResultHandler {
 
 class ReportMessageDeliveryQuery final : public Td::ResultHandler {
   DialogId dialog_id_;
+  MessageId message_id_;
 
  public:
   void send(MessageFullId message_full_id, bool from_push) {
@@ -140,10 +141,10 @@ class ReportMessageDeliveryQuery final : public Td::ResultHandler {
     if (input_peer == nullptr) {
       return;
     }
-    auto message_id = message_full_id.get_message_id();
-    CHECK(message_id.is_server());
+    message_id_ = message_full_id.get_message_id();
+    CHECK(message_id_.is_server());
     send_query(G()->net_query_creator().create(telegram_api::messages_reportMessagesDelivery(
-        0, from_push, std::move(input_peer), {message_id.get_server_message_id().get()})));
+        0, from_push, std::move(input_peer), {message_id_.get_server_message_id().get()})));
   }
 
   void on_result(BufferSlice packet) final {
@@ -156,7 +157,52 @@ class ReportMessageDeliveryQuery final : public Td::ResultHandler {
   }
 
   void on_error(Status status) final {
-    td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "ReportMessageDeliveryQuery");
+    td_->messages_manager_->on_get_message_error(dialog_id_, message_id_, status, "ReportMessageDeliveryQuery");
+  }
+};
+
+class SendBotRequestedPeerQuery final : public Td::ResultHandler {
+  Promise<Unit> promise_;
+
+ public:
+  explicit SendBotRequestedPeerQuery(Promise<Unit> &&promise) : promise_(std::move(promise)) {
+  }
+
+  void send(MessageFullId message_full_id, int32 button_id, vector<DialogId> &&requested_dialog_ids) {
+    auto dialog_id = message_full_id.get_dialog_id();
+    auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id, AccessRights::Write);
+    if (input_peer == nullptr) {
+      return on_error(Status::Error(400, "Can't access the chat"));
+    }
+    vector<telegram_api::object_ptr<telegram_api::InputPeer>> requested_peers;
+    for (auto requested_dialog_id : requested_dialog_ids) {
+      auto requested_peer = td_->dialog_manager_->get_input_peer(requested_dialog_id, AccessRights::Read);
+      if (requested_peer == nullptr) {
+        return on_error(Status::Error(400, "Can't access the chosen chat"));
+      }
+      requested_peers.push_back(std::move(requested_peer));
+    }
+
+    send_query(G()->net_query_creator().create(
+        telegram_api::messages_sendBotRequestedPeer(std::move(input_peer),
+                                                    message_full_id.get_message_id().get_server_message_id().get(),
+                                                    button_id, std::move(requested_peers)),
+        {{dialog_id, MessageContentType::Text}}));
+  }
+
+  void on_result(BufferSlice packet) final {
+    auto result_ptr = fetch_result<telegram_api::messages_sendBotRequestedPeer>(packet);
+    if (result_ptr.is_error()) {
+      return on_error(result_ptr.move_as_error());
+    }
+
+    auto ptr = result_ptr.move_as_ok();
+    LOG(INFO) << "Receive result for SendBotRequestedPeerQuery: " << to_string(ptr);
+    td_->updates_manager_->on_get_updates(std::move(ptr), std::move(promise_));
+  }
+
+  void on_error(Status status) final {
+    promise_.set_error(std::move(status));
   }
 };
 
@@ -235,6 +281,7 @@ class GetFactCheckQuery final : public Td::ResultHandler {
 class EditMessageFactCheckQuery final : public Td::ResultHandler {
   Promise<Unit> promise_;
   DialogId dialog_id_;
+  MessageId message_id_;
 
  public:
   explicit EditMessageFactCheckQuery(Promise<Unit> &&promise) : promise_(std::move(promise)) {
@@ -242,6 +289,7 @@ class EditMessageFactCheckQuery final : public Td::ResultHandler {
 
   void send(DialogId dialog_id, MessageId message_id, const FormattedText &text) {
     dialog_id_ = dialog_id;
+    message_id_ = message_id;
     auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id, AccessRights::Read);
     CHECK(input_peer != nullptr);
     CHECK(message_id.is_server());
@@ -271,7 +319,7 @@ class EditMessageFactCheckQuery final : public Td::ResultHandler {
   }
 
   void on_error(Status status) final {
-    td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "EditMessageFactCheckQuery");
+    td_->messages_manager_->on_get_message_error(dialog_id_, message_id_, status, "EditMessageFactCheckQuery");
     promise_.set_error(std::move(status));
   }
 };
@@ -622,7 +670,7 @@ class GetMessagePositionQuery final : public Td::ResultHandler {
   }
 
   void on_error(Status status) final {
-    td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "GetMessagePositionQuery");
+    td_->messages_manager_->on_get_message_error(dialog_id_, message_id_, status, "GetMessagePositionQuery");
     promise_.set_error(std::move(status));
   }
 };
@@ -1706,6 +1754,12 @@ void MessageQueryManager::report_message_delivery(MessageFullId message_full_id,
     return;
   }
   td_->create_handler<ReportMessageDeliveryQuery>()->send(message_full_id, from_push);
+}
+
+void MessageQueryManager::send_bot_requested_peer(MessageFullId message_full_id, int32 button_id,
+                                                  vector<DialogId> shared_dialog_ids, Promise<Unit> &&promise) {
+  td_->create_handler<SendBotRequestedPeerQuery>(std::move(promise))
+      ->send(message_full_id, button_id, std::move(shared_dialog_ids));
 }
 
 void MessageQueryManager::reload_message_extended_media(DialogId dialog_id, vector<MessageId> message_ids) {
