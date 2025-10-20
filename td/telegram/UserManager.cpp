@@ -3186,7 +3186,7 @@ void UserManager::on_get_user(telegram_api::object_ptr<telegram_api::User> &&use
       bot_active_users = u->bot_active_users;
       u->is_changed = true;
 
-      if (is_me) {
+      if (is_me && bot_active_users != 0) {
         next_set_my_active_users_ = Time::now() + 600;
       }
     }
