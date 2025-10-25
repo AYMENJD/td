@@ -989,14 +989,16 @@ class CliClient final : public Actor {
 
   struct ForumTopicId {
     int32 forum_topic_id = 0;
+    int32 default_forum_topic_id = 0;
 
     operator int32() const {
-      return forum_topic_id;
+      return forum_topic_id ? forum_topic_id : default_forum_topic_id;
     }
   };
 
   void get_args(string &args, ForumTopicId &arg) const {
     arg.forum_topic_id = as_forum_topic_id(args);
+    arg.default_forum_topic_id = forum_topic_id_;
   }
 
   struct UserId {
@@ -5873,7 +5875,7 @@ class CliClient final : public Actor {
     } else if (op == "sop") {
       only_preview_ = as_bool(args);
     } else if (op == "sfti") {
-      get_args(args, forum_topic_id_);
+      forum_topic_id_ = as_forum_topic_id(args);
     } else if (op == "smti") {
       get_args(args, message_thread_id_);
     } else if (op == "sdmcti") {
@@ -7780,13 +7782,15 @@ class CliClient final : public Actor {
     } else if (op == "rrh") {
       const string &hashtag = args;
       send_request(td_api::make_object<td_api::removeRecentHashtag>(hashtag));
-    } else if (op == "view" || op == "viewh" || op == "viewt" || op == "views" || op == "viewf") {
+    } else if (op == "view" || op == "viewh" || op == "viewft" || op == "viewt" || op == "views" || op == "viewf") {
       ChatId chat_id;
       string message_ids;
       get_args(args, chat_id, message_ids);
       td_api::object_ptr<td_api::MessageSource> source;
       if (op == "viewh") {
         source = td_api::make_object<td_api::messageSourceChatHistory>();
+      } else if (op == "viewft") {
+        source = td_api::make_object<td_api::messageSourceForumTopicHistory>();
       } else if (op == "viewt") {
         source = td_api::make_object<td_api::messageSourceMessageThreadHistory>();
       } else if (op == "viewf") {
@@ -8359,7 +8363,7 @@ class CliClient final : public Actor {
   int64 paid_message_star_count_ = 0;
   int64 message_effect_id_ = 0;
   bool only_preview_ = false;
-  ForumTopicId forum_topic_id_;
+  int32 forum_topic_id_ = 0;
   MessageThreadId message_thread_id_;
   ChatId direct_messages_chat_topic_id_;
   string business_connection_id_;

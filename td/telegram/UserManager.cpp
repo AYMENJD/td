@@ -3183,7 +3183,7 @@ void UserManager::on_get_user(telegram_api::object_ptr<telegram_api::User> &&use
   if (bot_active_users != u->bot_active_users) {
     bool is_me = user_id == get_my_id();
     if (!is_me || Time::now() > next_set_my_active_users_) {
-      bot_active_users = u->bot_active_users;
+      u->bot_active_users = bot_active_users;
       u->is_changed = true;
 
       if (is_me) {
@@ -9812,9 +9812,9 @@ td_api::object_ptr<td_api::user> UserManager::get_user_object(UserId user_id, co
       u->background_custom_emoji_id.get(),
       u->peer_color_collectible == nullptr ? nullptr : u->peer_color_collectible->get_upgraded_gift_colors_object(),
       td_->theme_manager_->get_profile_accent_color_id_object(u->profile_accent_color_id),
-      u->profile_background_custom_emoji_id.get(), std::move(emoji_status), u->is_contact, u->is_mutual_contact,
-      u->is_close_friend, std::move(verification_status), u->is_premium, u->is_support,
-      get_restriction_info_object(u->restriction_reasons), u->max_active_story_id.is_valid(),
+      u->profile_background_custom_emoji_id.get(), std::move(emoji_status), is_user_contact(u, user_id, false),
+      is_user_contact(u, user_id, true), u->is_close_friend, std::move(verification_status), u->is_premium,
+      u->is_support, get_restriction_info_object(u->restriction_reasons), u->max_active_story_id.is_valid(),
       get_user_has_unread_stories(u), restricts_new_chats, u->paid_message_star_count, have_access, std::move(type),
       u->language_code, u->attach_menu_enabled);
 }

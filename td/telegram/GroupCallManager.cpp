@@ -2926,7 +2926,7 @@ void GroupCallManager::sync_group_call_participants(InputGroupCallId input_group
 
   sync_participants_timeout_.cancel_timeout(group_call->group_call_id.get());
 
-  if (group_call->syncing_participants) {
+  if (group_call->syncing_participants || (group_call->is_conference && !group_call->is_joined)) {
     group_call->need_syncing_participants = true;
     return;
   }
@@ -4169,6 +4169,9 @@ bool GroupCallManager::on_join_group_call_response(InputGroupCallId input_group_
     check_group_call_is_joined_timeout_.set_timeout_in(group_call->group_call_id.get(),
                                                        CHECK_GROUP_CALL_IS_JOINED_TIMEOUT);
   }
+  if (group_call->need_syncing_participants) {
+    sync_participants_timeout_.add_timeout_in(group_call->group_call_id.get(), 0.0);
+  }
   pending_join_requests_.erase(it);
   try_clear_group_call_participants(input_group_call_id);
   process_group_call_after_join_requests(input_group_call_id, "on_join_group_call_response");
@@ -4864,7 +4867,7 @@ void GroupCallManager::send_group_call_message(GroupCallId group_call_id,
                      get_formatted_text(td_, group_call->dialog_id, std::move(text), td_->auth_manager_->is_bot(),
                                         false, true, false));
   if (static_cast<int64>(utf8_length(message.text)) > G()->get_option_integer("group_call_message_text_length_max")) {
-    // return promise.set_error(400, "Message is too long");
+    return promise.set_error(400, "Message is too long");
   }
 
   auto as_dialog_id =
@@ -5950,6 +5953,7 @@ bool GroupCallManager::try_clear_group_call_participants(InputGroupCallId input_
     need_update = true;
   }
   group_call->leave_version = group_call->version;
+  group_call->need_syncing_participants = false;
   group_call->version = -1;
 
   for (auto &participant : participants->participants) {
