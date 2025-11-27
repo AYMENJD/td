@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 
-project(TDLib VERSION 1.8.56 LANGUAGES CXX C)
+project(TDLib VERSION 1.8.57 LANGUAGES CXX C)
 
 if (NOT DEFINED CMAKE_MODULE_PATH)
   set(CMAKE_MODULE_PATH "")
@@ -342,6 +342,7 @@ set(TD_MTPROTO_SOURCE
 
 set(TDLIB_SOURCE_PART1
   td/telegram/AccountManager.cpp
+  td/telegram/ActiveStoryState.cpp
   td/telegram/AffiliateType.cpp
   td/telegram/AgeVerificationParameters.cpp
   td/telegram/AlarmManager.cpp
@@ -466,6 +467,8 @@ set(TDLIB_SOURCE_PART1
   td/telegram/GlobalPrivacySettings.cpp
   td/telegram/GroupCallJoinParameters.cpp
   td/telegram/GroupCallManager.cpp
+  td/telegram/GroupCallMessage.cpp
+  td/telegram/GroupCallMessageLimit.cpp
   td/telegram/GroupCallParticipant.cpp
   td/telegram/GroupCallParticipantOrder.cpp
   td/telegram/GroupCallVideoPayload.cpp
@@ -488,6 +491,7 @@ set(TDLIB_SOURCE_PART1
   td/telegram/MediaAreaCoordinates.cpp
   td/telegram/MessageContent.cpp
   td/telegram/MessageContentType.cpp
+  td/telegram/MessageCopyOptions.cpp
   td/telegram/MessageDb.cpp
   td/telegram/MessageEntity.cpp
   td/telegram/MessageExtendedMedia.cpp
@@ -677,6 +681,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/AccentColorId.h
   td/telegram/AccessRights.h
   td/telegram/AccountManager.h
+  td/telegram/ActiveStoryState.h
   td/telegram/AffectedHistory.h
   td/telegram/AffiliateType.h
   td/telegram/AgeVerificationParameters.h
@@ -830,6 +835,8 @@ set(TDLIB_SOURCE_PART2
   td/telegram/GroupCallJoinParameters.h
   td/telegram/GroupCallId.h
   td/telegram/GroupCallManager.h
+  td/telegram/GroupCallMessage.h
+  td/telegram/GroupCallMessageLimit.h
   td/telegram/GroupCallParticipant.h
   td/telegram/GroupCallParticipantOrder.h
   td/telegram/GroupCallVideoPayload.h
@@ -1129,6 +1136,7 @@ set(TDLIB_SOURCE_PART2
   td/telegram/ForumTopicInfo.hpp
   td/telegram/Game.hpp
   td/telegram/GiveawayParameters.hpp
+  td/telegram/GroupCallMessageLimit.hpp
   td/telegram/InputInvoice.hpp
   td/telegram/InputMessageText.hpp
   td/telegram/MediaArea.hpp

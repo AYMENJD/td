@@ -284,6 +284,7 @@ function split_file($file, $chunks, $undo) {
         $td_methods = array(
             'AccentColorId' => 'AccentColorId',
             'account_manager[_(-](?![.]get[(][)])|AccountManager[^;>]' => 'AccountManager',
+            'ActiveStoryState' => 'ActiveStoryState',
             'AffiliateType' => 'AffiliateType',
             'AgeVerificationParameters' => 'AgeVerificationParameters',
             'alarm_manager[_(-](?![.]get[(][)])|AlarmManager' => 'AlarmManager',
@@ -361,6 +362,8 @@ function split_file($file, $chunks, $undo) {
             'GroupCallJoinParameters' => 'GroupCallJoinParameters',
             'GroupCallId' => 'GroupCallId',
             'group_call_manager[_(-](?![.]get[(][)])|GroupCallManager' => 'GroupCallManager',
+            'GroupCallMessage[^A-Z]' => 'GroupCallMessage',
+            'GroupCallMessageLimit' => 'GroupCallMessageLimit',
             'hashtag_hints[_(-](?![.]get[(][)])|HashtagHints' => 'HashtagHints',
             'inline_message_manager[_(-](?![.]get[(][)])|InlineMessageManager' => 'InlineMessageManager',
             'inline_queries_manager[_(-](?![.]get[(][)])|InlineQueriesManager' => 'InlineQueriesManager',

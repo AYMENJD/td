@@ -2236,6 +2236,8 @@ void Requests::on_request(uint64 id, const td_api::getCurrentState &request) {
 
     td_->star_manager_->get_current_state(updates);
 
+    td_->group_call_manager_->get_current_state(updates);
+
     // TODO updateFileGenerationStart generation_id:int64 original_path:string destination_path:string conversion:string = Update;
     // TODO updateCall call:call = Update;
     // TODO updateGroupCall call:groupCall = Update;
@@ -2261,6 +2263,12 @@ void Requests::on_request(uint64 id, td_api::setPassword &request) {
   send_closure(td_->password_manager_, &PasswordManager::set_password, std::move(request.old_password_),
                std::move(request.new_password_), std::move(request.new_hint_), request.set_recovery_email_address_,
                std::move(request.new_recovery_email_address_), std::move(promise));
+}
+
+void Requests::on_request(uint64 id, const td_api::isLoginEmailAddressRequired &request) {
+  CHECK_IS_USER();
+  CREATE_OK_REQUEST_PROMISE();
+  td_->suggested_action_manager_->is_login_email_address_required(std::move(promise));
 }
 
 void Requests::on_request(uint64 id, td_api::setLoginEmailAddress &request) {
@@ -4373,6 +4381,14 @@ void Requests::on_request(uint64 id, td_api::postStory &request) {
                                   request.protect_content_, std::move(promise));
 }
 
+void Requests::on_request(uint64 id, td_api::startLiveStory &request) {
+  CHECK_IS_USER();
+  CREATE_REQUEST_PROMISE();
+  td_->story_manager_->start_live_story(DialogId(request.chat_id_), std::move(request.privacy_settings_), false,
+                                        request.protect_content_, request.is_rtmp_stream_, request.enable_messages_,
+                                        request.paid_message_star_count_, std::move(promise));
+}
+
 void Requests::on_request(uint64 id, td_api::editStory &request) {
   CHECK_IS_USER();
   CREATE_OK_REQUEST_PROMISE();
@@ -4763,13 +4779,26 @@ void Requests::on_request(uint64 id, td_api::createGroupCall &request) {
 void Requests::on_request(uint64 id, const td_api::getVideoChatRtmpUrl &request) {
   CHECK_IS_USER();
   CREATE_REQUEST_PROMISE();
-  td_->group_call_manager_->get_video_chat_rtmp_stream_url(DialogId(request.chat_id_), false, std::move(promise));
+  td_->group_call_manager_->get_video_chat_rtmp_stream_url(DialogId(request.chat_id_), false, false,
+                                                           std::move(promise));
 }
 
 void Requests::on_request(uint64 id, const td_api::replaceVideoChatRtmpUrl &request) {
   CHECK_IS_USER();
   CREATE_REQUEST_PROMISE();
-  td_->group_call_manager_->get_video_chat_rtmp_stream_url(DialogId(request.chat_id_), true, std::move(promise));
+  td_->group_call_manager_->get_video_chat_rtmp_stream_url(DialogId(request.chat_id_), false, true, std::move(promise));
+}
+
+void Requests::on_request(uint64 id, const td_api::getLiveStoryRtmpUrl &request) {
+  CHECK_IS_USER();
+  CREATE_REQUEST_PROMISE();
+  td_->group_call_manager_->get_video_chat_rtmp_stream_url(DialogId(request.chat_id_), true, false, std::move(promise));
+}
+
+void Requests::on_request(uint64 id, const td_api::replaceLiveStoryRtmpUrl &request) {
+  CHECK_IS_USER();
+  CREATE_REQUEST_PROMISE();
+  td_->group_call_manager_->get_video_chat_rtmp_stream_url(DialogId(request.chat_id_), true, true, std::move(promise));
 }
 
 void Requests::on_request(uint64 id, const td_api::getGroupCall &request) {
@@ -4791,6 +4820,27 @@ void Requests::on_request(uint64 id, const td_api::toggleVideoChatEnabledStartNo
                                                                request.enabled_start_notification_, std::move(promise));
 }
 
+void Requests::on_request(uint64 id, const td_api::getLiveStoryStreamer &request) {
+  CHECK_IS_USER();
+  CREATE_REQUEST_PROMISE();
+  td_->group_call_manager_->get_group_call_streamer(GroupCallId(request.group_call_id_), std::move(promise));
+}
+
+void Requests::on_request(uint64 id, const td_api::getLiveStoryAvailableMessageSenders &request) {
+  CHECK_IS_USER();
+  CREATE_REQUEST_PROMISE();
+  td_->group_call_manager_->get_group_call_send_as(GroupCallId(request.group_call_id_), std::move(promise));
+}
+
+void Requests::on_request(uint64 id, const td_api::setLiveStoryMessageSender &request) {
+  CHECK_IS_USER();
+  CREATE_OK_REQUEST_PROMISE();
+  TRY_RESULT_PROMISE(promise, message_sender_dialog_id,
+                     get_message_sender_dialog_id(td_, request.message_sender_id_, true, false));
+  td_->group_call_manager_->set_group_call_default_send_as(GroupCallId(request.group_call_id_),
+                                                           message_sender_dialog_id, std::move(promise));
+}
+
 void Requests::on_request(uint64 id, td_api::joinGroupCall &request) {
   CHECK_IS_USER();
   CREATE_REQUEST_PROMISE();
@@ -4806,6 +4856,13 @@ void Requests::on_request(uint64 id, td_api::joinVideoChat &request) {
                      get_message_sender_dialog_id(td_, request.participant_id_, true, true));
   td_->group_call_manager_->join_video_chat(GroupCallId(request.group_call_id_), join_as_dialog_id,
                                             std::move(request.join_parameters_), request.invite_hash_,
+                                            std::move(promise));
+}
+
+void Requests::on_request(uint64 id, td_api::joinLiveStory &request) {
+  CHECK_IS_USER();
+  CREATE_TEXT_REQUEST_PROMISE();
+  td_->group_call_manager_->join_live_story(GroupCallId(request.group_call_id_), std::move(request.join_parameters_),
                                             std::move(promise));
 }
 
@@ -4845,18 +4902,67 @@ void Requests::on_request(uint64 id, const td_api::toggleVideoChatMuteNewPartici
                                                                     request.mute_new_participants_, std::move(promise));
 }
 
-void Requests::on_request(uint64 id, const td_api::toggleGroupCallCanSendMessages &request) {
+void Requests::on_request(uint64 id, const td_api::toggleGroupCallAreMessagesAllowed &request) {
   CHECK_IS_USER();
   CREATE_OK_REQUEST_PROMISE();
   td_->group_call_manager_->toggle_group_call_are_messages_enabled(GroupCallId(request.group_call_id_),
-                                                                   request.can_send_messages_, std::move(promise));
+                                                                   request.are_messages_allowed_, std::move(promise));
+}
+
+void Requests::on_request(uint64 id, const td_api::setGroupCallPaidMessageStarCount &request) {
+  CHECK_IS_USER();
+  CREATE_OK_REQUEST_PROMISE();
+  td_->group_call_manager_->set_group_call_paid_message_star_count(
+      GroupCallId(request.group_call_id_), request.paid_message_star_count_, std::move(promise));
 }
 
 void Requests::on_request(uint64 id, td_api::sendGroupCallMessage &request) {
   CHECK_IS_USER();
   CREATE_OK_REQUEST_PROMISE();
   td_->group_call_manager_->send_group_call_message(GroupCallId(request.group_call_id_), std::move(request.text_),
-                                                    std::move(promise));
+                                                    request.paid_message_star_count_, false, std::move(promise));
+}
+
+void Requests::on_request(uint64 id, const td_api::addPendingLiveStoryReaction &request) {
+  CHECK_IS_USER();
+  CREATE_OK_REQUEST_PROMISE();
+  td_->group_call_manager_->send_group_call_reaction(GroupCallId(request.group_call_id_), request.star_count_,
+                                                     std::move(promise));
+}
+
+void Requests::on_request(uint64 id, const td_api::commitPendingLiveStoryReactions &request) {
+  CHECK_IS_USER();
+  CREATE_OK_REQUEST_PROMISE();
+  td_->group_call_manager_->commit_pending_group_call_reactions(GroupCallId(request.group_call_id_),
+                                                                std::move(promise));
+}
+
+void Requests::on_request(uint64 id, const td_api::removePendingLiveStoryReactions &request) {
+  CHECK_IS_USER();
+  CREATE_OK_REQUEST_PROMISE();
+  td_->group_call_manager_->remove_pending_group_call_reactions(GroupCallId(request.group_call_id_),
+                                                                std::move(promise));
+}
+
+void Requests::on_request(uint64 id, const td_api::deleteGroupCallMessages &request) {
+  CHECK_IS_USER();
+  CREATE_OK_REQUEST_PROMISE();
+  td_->group_call_manager_->delete_group_call_messages(GroupCallId(request.group_call_id_), request.message_ids_,
+                                                       request.report_spam_, std::move(promise));
+}
+
+void Requests::on_request(uint64 id, const td_api::deleteGroupCallMessagesBySender &request) {
+  CHECK_IS_USER();
+  CREATE_OK_REQUEST_PROMISE();
+  TRY_RESULT_PROMISE(promise, sender_dialog_id, get_message_sender_dialog_id(td_, request.sender_id_, false, false));
+  td_->group_call_manager_->delete_group_call_messages_by_sender(GroupCallId(request.group_call_id_), sender_dialog_id,
+                                                                 request.report_spam_, std::move(promise));
+}
+
+void Requests::on_request(uint64 id, const td_api::getLiveStoryTopDonors &request) {
+  CHECK_IS_USER();
+  CREATE_REQUEST_PROMISE();
+  td_->group_call_manager_->get_group_call_stars(GroupCallId(request.group_call_id_), std::move(promise));
 }
 
 void Requests::on_request(uint64 id, const td_api::revokeGroupCallInviteLink &request) {
@@ -4990,13 +5096,13 @@ void Requests::on_request(uint64 id, const td_api::endGroupCall &request) {
   td_->group_call_manager_->discard_group_call(GroupCallId(request.group_call_id_), std::move(promise));
 }
 
-void Requests::on_request(uint64 id, const td_api::getVideoChatStreams &request) {
+void Requests::on_request(uint64 id, const td_api::getGroupCallStreams &request) {
   CHECK_IS_USER();
   CREATE_REQUEST_PROMISE();
   td_->group_call_manager_->get_group_call_streams(GroupCallId(request.group_call_id_), std::move(promise));
 }
 
-void Requests::on_request(uint64 id, td_api::getVideoChatStreamSegment &request) {
+void Requests::on_request(uint64 id, td_api::getGroupCallStreamSegment &request) {
   CHECK_IS_USER();
   CREATE_DATA_REQUEST_PROMISE();
   td_->group_call_manager_->get_group_call_stream_segment(GroupCallId(request.group_call_id_), request.time_offset_,
@@ -7906,7 +8012,6 @@ void Requests::on_request(uint64 id, td_api::sendResoldGift &request) {
 }
 
 void Requests::on_request(uint64 id, td_api::getReceivedGifts &request) {
-  CHECK_IS_USER_OR_BUSINESS();
   CLEAN_INPUT_STRING(request.offset_);
   CREATE_REQUEST_PROMISE();
   TRY_RESULT_PROMISE(promise, owner_dialog_id, get_message_sender_dialog_id(td_, request.owner_id_, true, false));

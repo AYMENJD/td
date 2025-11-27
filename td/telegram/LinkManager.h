@@ -151,6 +151,8 @@ class LinkManager final : public Actor {
   class InternalLinkInvoice;
   class InternalLinkLanguage;
   class InternalLinkLanguageSettings;
+  class InternalLinkLiveStory;
+  class InternalLinkLoginEmailSettings;
   class InternalLinkMainWebApp;
   class InternalLinkMessage;
   class InternalLinkMessageDraft;
@@ -158,6 +160,8 @@ class LinkManager final : public Actor {
   class InternalLinkMyStars;
   class InternalLinkMyToncoins;
   class InternalLinkPassportDataRequest;
+  class InternalLinkPasswordSettings;
+  class InternalLinkPhoneNumberPrivacySettings;
   class InternalLinkPremiumFeatures;
   class InternalLinkPremiumGift;
   class InternalLinkPremiumGiftCode;

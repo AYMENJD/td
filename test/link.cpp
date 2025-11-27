@@ -305,6 +305,14 @@ static auto language_settings() {
   return td::td_api::make_object<td::td_api::internalLinkTypeLanguageSettings>();
 }
 
+static auto live_story(const td::string &poster_username) {
+  return td::td_api::make_object<td::td_api::internalLinkTypeLiveStory>(poster_username);
+}
+
+static auto login_email_settings() {
+  return td::td_api::make_object<td::td_api::internalLinkTypeLoginEmailSettings>();
+}
+
 static auto main_web_app(const td::string &bot_username, const td::string &start_parameter, bool is_compact,
                          bool is_full_screen) {
   return td::td_api::make_object<td::td_api::internalLinkTypeMainWebApp>(bot_username, start_parameter,
@@ -335,8 +343,16 @@ static auto passport_data_request(td::int32 bot_user_id, const td::string &scope
                                                                                   callback_url);
 }
 
+static auto password_settings() {
+  return td::td_api::make_object<td::td_api::internalLinkTypePasswordSettings>();
+}
+
 static auto phone_number_confirmation(const td::string &hash, const td::string &phone_number) {
   return td::td_api::make_object<td::td_api::internalLinkTypePhoneNumberConfirmation>(hash, phone_number);
+}
+
+static auto phone_number_privacy_settings() {
+  return td::td_api::make_object<td::td_api::internalLinkTypePhoneNumberPrivacySettings>();
 }
 
 static auto premium_features(const td::string &referrer) {
@@ -1443,12 +1459,16 @@ TEST(Link, parse_internal_link_part4) {
   parse_internal_link("tg:resolve?domain=telegram&&&&&&&story=%31ab", public_chat("telegram"));
   parse_internal_link("tg:resolve?domain=telegram&&&&&&&story=%31%39", story("telegram", 19));
   parse_internal_link("tg:resolve?domain=telegram&&&&&&&story=2222222222", public_chat("telegram"));
+  parse_internal_link("tg:resolve?domain=telegram&&&&&&&story=live", live_story("telegram"));
+  parse_internal_link("tg:resolve?domain=telegram&&&&&&&story=Live", public_chat("telegram"));
 
   parse_internal_link("t.me/username/s/1234", story("username", 1234));
   parse_internal_link("t.me/username/s/3?qwe=12312#12312", story("username", 3));
   parse_internal_link("t.me/username/s/1", story("username", 1));
   parse_internal_link("t.me/username/s/2", story("username", 2));
   parse_internal_link("t.me/username/s/5", story("username", 5));
+  parse_internal_link("t.me/username/s/live", live_story("username"));
+  parse_internal_link("t.me/username/s/Live", public_chat("username"));
   parse_internal_link("t.me/username/s/", public_chat("username"));
   parse_internal_link("t.me/username#/s/123", public_chat("username"));
   parse_internal_link("t.me/username?story=123", public_chat("username"));
@@ -1652,6 +1672,9 @@ TEST(Link, parse_internal_link_part4) {
   parse_internal_link("tg://settings/folders", chat_folder_settings());
   parse_internal_link("tg://settings/filters", settings());
   parse_internal_link("tg://settings/language", language_settings());
+  parse_internal_link("tg://settings/login_email", login_email_settings());
+  parse_internal_link("tg://settings/password", password_settings());
+  parse_internal_link("tg://settings/phone_privacy", phone_number_privacy_settings());
   parse_internal_link("tg://settings/privacy", privacy_and_security_settings());
 
   parse_internal_link("tg://stars", my_stars());
