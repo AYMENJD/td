@@ -8,10 +8,13 @@
 
 #include "td/telegram/td_api.h"
 
+#include "td/utils/common.h"
 #include "td/utils/Slice.h"
 
 namespace td {
 
 td_api::object_ptr<td_api::outline> get_outline_object(CSlice path, double zoom, Slice source);
+
+string get_outline_svg_path(CSlice path, double zoom, Slice source);
 
 }  // namespace td

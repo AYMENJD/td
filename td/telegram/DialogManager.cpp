@@ -2334,6 +2334,7 @@ void DialogManager::set_dialog_photo(DialogId dialog_id, const td_api::object_pt
 void DialogManager::send_edit_dialog_photo_query(
     DialogId dialog_id, FileUploadId file_upload_id,
     telegram_api::object_ptr<telegram_api::InputChatPhoto> &&input_chat_photo, Promise<Unit> &&promise) {
+  TRY_STATUS_PROMISE(promise, G()->close_status());
   td_->create_handler<EditDialogPhotoQuery>(std::move(promise))
       ->send(dialog_id, file_upload_id, std::move(input_chat_photo));
 }
@@ -2341,6 +2342,7 @@ void DialogManager::send_edit_dialog_photo_query(
 void DialogManager::upload_dialog_photo(DialogId dialog_id, FileUploadId file_upload_id, bool is_animation,
                                         double main_frame_timestamp, bool is_reupload, Promise<Unit> &&promise,
                                         vector<int> bad_parts) {
+  TRY_STATUS_PROMISE(promise, G()->close_status());
   CHECK(file_upload_id.is_valid());
   LOG(INFO) << "Ask to upload chat photo " << file_upload_id;
   bool is_inserted = being_uploaded_dialog_photos_
@@ -2706,6 +2708,32 @@ void DialogManager::report_dialog_photo(DialogId dialog_id, FileId file_id, Repo
 
   td_->create_handler<ReportProfilePhotoQuery>(std::move(promise))
       ->send(dialog_id, file_id, full_remote_location->as_input_photo(), std::move(reason));
+}
+
+Status DialogManager::can_delete_all_dialog_messages_by_sender(DialogId dialog_id) const {
+  switch (dialog_id.get_type()) {
+    case DialogType::User:
+    case DialogType::Chat:
+    case DialogType::SecretChat:
+    case DialogType::None:
+      return Status::Error(400, "All messages from a sender can be deleted only in supergroup chats");
+    case DialogType::Channel: {
+      auto channel_id = dialog_id.get_channel_id();
+      if (!td_->chat_manager_->is_megagroup_channel(channel_id) ||
+          td_->chat_manager_->is_monoforum_channel(channel_id)) {
+        return Status::Error(400, "The method is available only in regular supergroup chats");
+      }
+      auto channel_status = td_->chat_manager_->get_channel_permissions(channel_id);
+      if (!channel_status.can_delete_messages()) {
+        return Status::Error(400, "Need delete messages administrator right in the supergroup chat");
+      }
+      break;
+    }
+    default:
+      UNREACHABLE();
+      break;
+  }
+  return Status::OK();
 }
 
 Status DialogManager::can_pin_messages(DialogId dialog_id) const {

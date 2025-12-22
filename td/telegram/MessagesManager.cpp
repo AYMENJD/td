@@ -1919,7 +1919,7 @@ class ForwardMessagesQuery final : public Td::ResultHandler {
   void send(int32 flags, DialogId to_dialog_id, const MessageTopic &message_topic,
             const MessageInputReplyTo &message_input_reply_to, DialogId from_dialog_id,
             telegram_api::object_ptr<telegram_api::InputPeer> as_input_peer, const vector<MessageId> &message_ids,
-            vector<int64> &&random_ids, int32 schedule_date, int32 schedule_repeat_period,
+            vector<int64> &&random_ids, int32 schedule_date, int32 schedule_repeat_period, MessageEffectId effect_id,
             int32 new_video_start_timestamp, int64 paid_message_star_count, const SuggestedPost *suggested_post) {
     random_ids_ = random_ids;
     from_dialog_id_ = from_dialog_id;
@@ -1964,7 +1964,7 @@ class ForwardMessagesQuery final : public Td::ResultHandler {
             flags, false, false, false, false, false, false, false, std::move(from_input_peer),
             MessageId::get_server_message_ids(message_ids), std::move(random_ids), std::move(to_input_peer), top_msg_id,
             std::move(input_reply_to), schedule_date, schedule_repeat_period, std::move(as_input_peer), nullptr,
-            new_video_start_timestamp, paid_message_star_count, std::move(post)),
+            effect_id.get(), new_video_start_timestamp, paid_message_star_count, std::move(post)),
         {{to_dialog_id, MessageContentType::Text}, {to_dialog_id, MessageContentType::Photo}});
     if (td_->option_manager_->get_option_boolean("use_quick_ack")) {
       query->quick_ack_promise_ = PromiseCreator::lambda([random_ids = random_ids_](Result<Unit> result) {
@@ -8405,40 +8405,10 @@ void MessagesManager::delete_dialog_messages_by_sender(DialogId dialog_id, Dialo
 
   TRY_RESULT_PROMISE(promise, d,
                      check_dialog_access(dialog_id, true, AccessRights::Write, "delete_dialog_messages_by_sender"));
+  TRY_STATUS_PROMISE(promise, td_->dialog_manager_->can_delete_all_dialog_messages_by_sender(dialog_id));
 
   if (!td_->dialog_manager_->have_input_peer(sender_dialog_id, false, AccessRights::Know)) {
     return promise.set_error(400, "Message sender not found");
-  }
-
-  ChannelId channel_id;
-  DialogParticipantStatus channel_status = DialogParticipantStatus::Left();
-  switch (dialog_id.get_type()) {
-    case DialogType::User:
-    case DialogType::Chat:
-    case DialogType::SecretChat:
-      return promise.set_error(400, "All messages from a sender can be deleted only in supergroup chats");
-    case DialogType::Channel: {
-      channel_id = dialog_id.get_channel_id();
-      if (!td_->chat_manager_->is_megagroup_channel(channel_id) ||
-          td_->chat_manager_->is_monoforum_channel(channel_id)) {
-        return promise.set_error(400, "The method is available only in regular supergroup chats");
-      }
-      channel_status = td_->chat_manager_->get_channel_permissions(channel_id);
-      if (!channel_status.can_delete_messages()) {
-        return promise.set_error(400, "Need delete messages administrator right in the supergroup chat");
-      }
-      channel_id = dialog_id.get_channel_id();
-      break;
-    }
-    case DialogType::None:
-    default:
-      UNREACHABLE();
-      break;
-  }
-  CHECK(channel_id.is_valid());
-
-  if (sender_dialog_id.get_type() == DialogType::SecretChat) {
-    return promise.set_value(Unit());
   }
 
   if (G()->use_message_database()) {
@@ -8447,9 +8417,14 @@ void MessagesManager::delete_dialog_messages_by_sender(DialogId dialog_id, Dialo
                                                                            Auto());  // TODO Promise
   }
 
-  vector<MessageId> message_ids = find_dialog_messages(d, [sender_dialog_id, channel_status, is_bot](const Message *m) {
-    return sender_dialog_id == get_message_sender(m) && can_delete_channel_message(false, channel_status, m, is_bot);
-  });
+  CHECK(dialog_id.get_type() == DialogType::Channel);
+  auto channel_id = dialog_id.get_channel_id();
+  vector<MessageId> message_ids = find_dialog_messages(
+      d, [sender_dialog_id, channel_status = td_->chat_manager_->get_channel_permissions(channel_id),
+          is_bot](const Message *m) {
+        return sender_dialog_id == get_message_sender(m) &&
+               can_delete_channel_message(false, channel_status, m, is_bot);
+      });
 
   delete_dialog_messages(d, message_ids, false, DELETE_MESSAGE_USER_REQUEST_SOURCE);
 
@@ -23850,13 +23825,16 @@ void MessagesManager::do_forward_messages(DialogId to_dialog_id, DialogId from_d
   if (drop_media_captions) {
     flags |= SEND_MESSAGE_FLAG_DROP_MEDIA_CAPTIONS;
   }
+  if (messages[0]->effect_id.is_valid()) {
+    flags |= SEND_MESSAGE_FLAG_EFFECT;
+  }
 
   vector<int64> random_ids =
       transform(messages, [this, to_dialog_id](const Message *m) { return begin_send_message(to_dialog_id, m); });
   send_closure_later(actor_id(this), &MessagesManager::send_forward_message_query, flags, to_dialog_id,
                      get_send_message_topic(to_dialog_id, messages[0]), messages[0]->input_reply_to.clone(),
                      from_dialog_id, std::move(as_input_peer), message_ids, std::move(random_ids), schedule_date,
-                     schedule_repeat_period, messages[0]->new_video_start_timestamp,
+                     schedule_repeat_period, messages[0]->effect_id, messages[0]->new_video_start_timestamp,
                      messages[0]->paid_message_star_count * static_cast<int32>(messages.size()),
                      SuggestedPost::clone(messages[0]->suggested_post), get_erase_log_event_promise(log_event_id));
 }
@@ -23866,11 +23844,12 @@ void MessagesManager::send_forward_message_query(int32 flags, DialogId to_dialog
                                                  telegram_api::object_ptr<telegram_api::InputPeer> as_input_peer,
                                                  vector<MessageId> message_ids, vector<int64> random_ids,
                                                  int32 schedule_date, int32 schedule_repeat_period,
-                                                 int32 new_video_start_timestamp, int64 paid_message_star_count,
+                                                 MessageEffectId effect_id, int32 new_video_start_timestamp,
+                                                 int64 paid_message_star_count,
                                                  unique_ptr<SuggestedPost> &&suggested_post, Promise<Unit> &&promise) {
   td_->create_handler<ForwardMessagesQuery>(std::move(promise))
       ->send(flags, to_dialog_id, message_topic, input_reply_to, from_dialog_id, std::move(as_input_peer), message_ids,
-             std::move(random_ids), schedule_date, schedule_repeat_period, new_video_start_timestamp,
+             std::move(random_ids), schedule_date, schedule_repeat_period, effect_id, new_video_start_timestamp,
              paid_message_star_count, suggested_post.get());
 }
 
@@ -24082,7 +24061,7 @@ Result<MessagesManager::ForwardedMessages> MessagesManager::get_forwarded_messag
 
   TRY_STATUS(can_send_message(to_dialog_id));
   TRY_RESULT(message_send_options,
-             process_message_send_options(to_dialog_id, std::move(options), false, false,
+             process_message_send_options(to_dialog_id, std::move(options), false, message_ids.size() == 1u,
                                           add_offer || message_ids.size() == 1u, message_ids.size() == 1u,
                                           static_cast<int32>(message_ids.size())));
   TRY_RESULT(message_topic, MessageTopic::get_send_message_topic(td_, to_dialog_id, topic_id));

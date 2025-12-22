@@ -1367,6 +1367,7 @@ void ConfigManager::process_app_config(tl_object_ptr<telegram_api::JSONValue> &c
       {"channel_revenue_withdrawal_enabled", "can_withdraw_chat_revenue"},
       {"premium_gift_attach_menu_icon", "gift_premium_from_attachment_menu"},
       {"premium_gift_text_field_icon", "gift_premium_from_input_field"},
+      {"settings_display_passkeys", "can_use_login_passkey"},
       {"story_weather_preload", "can_preload_weather"},
       {"stars_gifts_enabled", "can_gift_stars"},
       {"stars_paid_messages_available", "can_enable_paid_messages"},
@@ -1408,6 +1409,7 @@ void ConfigManager::process_app_config(tl_object_ptr<telegram_api::JSONValue> &c
       {"intro_description_length_limit", "business_start_page_message_length_max"},
       {"intro_title_length_limit", "business_start_page_title_length_max"},
       {"message_typing_draft_ttl", "pending_text_message_period"},
+      {"passkeys_account_passkeys_max", "login_passkey_count_max"},
       {"pm_read_date_expire_period", ""},
       {"poll_answers_max", "poll_answer_count_max"},
       {"quick_replies_limit", "quick_reply_shortcut_count_max"},
@@ -1472,9 +1474,9 @@ void ConfigManager::process_app_config(tl_object_ptr<telegram_api::JSONValue> &c
       {"stories_changelog_user_id", "stories_changelog_user_id"}};
   static const FlatHashSet<Slice, SliceHash> ignored_options(
       {"default_emoji_statuses_stickerset_id", "forum_upgrade_participants_min", "getfile_experimental_params",
-       "message_animated_emoji_max", "stickers_emoji_cache_time", "stories_export_nopublic_link", "test",
-       "upload_max_fileparts_default", "upload_max_fileparts_premium", "channel_color_level_min",
-       "groupcall_video_participants_max", "story_expire_period", "stories_posting",
+       "ios_display_passkeys", "message_animated_emoji_max", "stickers_emoji_cache_time",
+       "stories_export_nopublic_link", "test", "upload_max_fileparts_default", "upload_max_fileparts_premium",
+       "channel_color_level_min", "groupcall_video_participants_max", "story_expire_period", "stories_posting",
        "giveaway_gifts_purchase_available", "stars_purchase_blocked", "stargifts_blocked", "starref_program_allowed",
        "starref_connect_allowed", "stars_rating_learnmore_url", "qr_login_camera", "qr_login_code",
        "dialog_filters_enabled",
