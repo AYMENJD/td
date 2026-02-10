@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2026
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -84,9 +84,7 @@ td_api::object_ptr<td_api::AuctionState> StarGiftAuctionState::get_auction_state
   if (is_active_) {
     auto bid_levels =
         transform(bid_levels_, [](const AuctionBidLevel &level) { return level.get_auction_bid_object(); });
-    auto top_bidder_user_ids = transform(top_bidder_user_ids_, [td](UserId user_id) {
-      return td->user_manager_->get_user_id_object(user_id, "auctionStateActive");
-    });
+    auto top_bidder_user_ids = td->user_manager_->get_user_ids_object(top_bidder_user_ids_, "auctionStateActive");
     auto rounds =
         transform(rounds_, [](const StarGiftAuctionRound &round) { return round.get_auction_round_object(); });
     return td_api::make_object<td_api::auctionStateActive>(

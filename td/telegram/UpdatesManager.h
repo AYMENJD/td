@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2026
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -120,6 +120,8 @@ class UpdatesManager final : public Actor {
   void process_updates_users_and_chats(telegram_api::Updates *updates_ptr);
 
   static string extract_join_group_call_presentation_params(telegram_api::Updates *updates_ptr);
+
+  static bool extract_star_gift_craft_fail(telegram_api::Updates *updates_ptr);
 
   static vector<telegram_api::object_ptr<telegram_api::updateGroupCallMessage>> extract_group_call_messages(
       telegram_api::Updates *updates_ptr);
@@ -615,6 +617,8 @@ class UpdatesManager final : public Actor {
 
   void on_update(tl_object_ptr<telegram_api::updateConfig> update, Promise<Unit> &&promise);
 
+  void on_update(tl_object_ptr<telegram_api::updateEmojiGameInfo> update, Promise<Unit> &&promise);
+
   void on_update(tl_object_ptr<telegram_api::updatePtsChanged> update, Promise<Unit> &&promise);
 
   void on_update(tl_object_ptr<telegram_api::updatePrivacy> update, Promise<Unit> &&promise);
@@ -650,6 +654,8 @@ class UpdatesManager final : public Actor {
   void on_update(tl_object_ptr<telegram_api::updateGroupCallEncryptedMessage> update, Promise<Unit> &&promise);
 
   void on_update(tl_object_ptr<telegram_api::updateDeleteGroupCallMessages> update, Promise<Unit> &&promise);
+
+  void on_update(tl_object_ptr<telegram_api::updateStarGiftCraftFail> update, Promise<Unit> &&promise);
 
   void on_update(tl_object_ptr<telegram_api::updateStarGiftAuctionState> update, Promise<Unit> &&promise);
 

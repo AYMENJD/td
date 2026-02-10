@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2026
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -3643,7 +3643,7 @@ StickerSetId StickersManager::on_get_sticker_set(tl_object_ptr<telegram_api::sti
       s->need_save_to_database_ = true;
     }
     if (s->title_ != set->title_) {
-      LOG(INFO) << "Title of " << set_id << " has changed";
+      LOG(INFO) << "Name of " << set_id << " has changed";
       s->title_ = std::move(set->title_);
       s->is_changed_ = true;
 
@@ -5042,7 +5042,7 @@ std::pair<int32, vector<StickerSetId>> StickersManager::search_installed_sticker
 
   std::pair<size_t, vector<int64>> result = installed_sticker_sets_hints_[type].search(query, limit);
   promise.set_value(Unit());
-  return {narrow_cast<int32>(result.first), convert_sticker_set_ids(result.second)};
+  return {narrow_cast<int32>(result.first), StickerSetId::get_sticker_set_ids(result.second)};
 }
 
 vector<StickerSetId> StickersManager::search_sticker_sets(StickerType sticker_type, const string &query,
@@ -5332,7 +5332,7 @@ void StickersManager::on_load_installed_sticker_sets_finished(StickerType sticke
     reload_installed_sticker_sets(sticker_type, true);
   } else if (!old_installed_sticker_set_ids.empty() &&
              old_installed_sticker_set_ids != installed_sticker_set_ids_[type]) {
-    LOG(ERROR) << "Reload installed " << sticker_type << " sticker sets, because they has changed from "
+    LOG(ERROR) << "Reload installed " << sticker_type << " sticker sets, because they have changed from "
                << old_installed_sticker_set_ids << " to " << installed_sticker_set_ids_[type] << " after loading from "
                << (from_database ? "database" : "server");
     reload_installed_sticker_sets(sticker_type, true);
@@ -8868,10 +8868,6 @@ int64 StickersManager::get_featured_sticker_sets_hash(StickerType sticker_type) 
 
 vector<int64> StickersManager::convert_sticker_set_ids(const vector<StickerSetId> &sticker_set_ids) {
   return transform(sticker_set_ids, [](StickerSetId sticker_set_id) { return sticker_set_id.get(); });
-}
-
-vector<StickerSetId> StickersManager::convert_sticker_set_ids(const vector<int64> &sticker_set_ids) {
-  return transform(sticker_set_ids, [](int64 sticker_set_id) { return StickerSetId(sticker_set_id); });
 }
 
 td_api::object_ptr<td_api::updateInstalledStickerSets> StickersManager::get_update_installed_sticker_sets_object(

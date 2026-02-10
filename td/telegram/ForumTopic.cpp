@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2026
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -17,7 +17,7 @@
 
 namespace td {
 
-ForumTopic::ForumTopic(Td *td, tl_object_ptr<telegram_api::ForumTopic> &&forum_topic_ptr,
+ForumTopic::ForumTopic(Td *td, telegram_api::object_ptr<telegram_api::ForumTopic> &&forum_topic_ptr,
                        const DialogNotificationSettings *current_notification_settings) {
   CHECK(forum_topic_ptr != nullptr);
   if (forum_topic_ptr->get_id() != telegram_api::forumTopic::ID) {

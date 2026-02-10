@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2026
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -41,6 +41,7 @@
 #include "td/telegram/MessageReplyInfo.h"
 #include "td/telegram/MessageSearchFilter.h"
 #include "td/telegram/MessageSelfDestructType.h"
+#include "td/telegram/MessageSendOptions.h"
 #include "td/telegram/MessagesInfo.h"
 #include "td/telegram/MessageSource.h"
 #include "td/telegram/MessageThreadInfo.h"
@@ -70,7 +71,6 @@
 #include "td/telegram/ServerMessageId.h"
 #include "td/telegram/StoryFullId.h"
 #include "td/telegram/StoryNotificationSettings.h"
-#include "td/telegram/SuggestedPost.h"
 #include "td/telegram/td_api.h"
 #include "td/telegram/telegram_api.h"
 #include "td/telegram/UserId.h"
@@ -387,19 +387,12 @@ class MessagesManager final : public Actor {
 
   void delete_dialog_history(DialogId dialog_id, bool remove_from_dialog_list, bool revoke, Promise<Unit> &&promise);
 
-  void delete_topic_history(DialogId dialog_id, ForumTopicId forum_topic_id, Promise<Unit> &&promise);
-
-  void delete_all_call_messages(bool revoke, Promise<Unit> &&promise);
-
   void delete_dialog_messages(DialogId dialog_id, const vector<MessageId> &message_ids,
                               bool force_update_for_not_found_messages, const char *source);
 
-  void delete_dialog_messages_by_sender(DialogId dialog_id, DialogId sender_dialog_id, Promise<Unit> &&promise);
+  void delete_local_dialog_messages_by_sender(DialogId dialog_id, DialogId sender_dialog_id);
 
-  static Status fix_delete_message_min_max_dates(int32 &min_date, int32 &max_date);
-
-  void delete_dialog_messages_by_date(DialogId dialog_id, int32 min_date, int32 max_date, bool revoke,
-                                      Promise<Unit> &&promise);
+  void delete_local_dialog_messages_by_date(DialogId dialog_id, int32 min_date, int32 max_date);
 
   void on_dialog_deleted(DialogId dialog_id, Promise<Unit> &&promise);
 
@@ -711,6 +704,8 @@ class MessagesManager final : public Actor {
 
   td_api::object_ptr<td_api::draftMessage> get_my_dialog_draft_message_object() const;
 
+  unique_ptr<DraftMessage> get_dialog_draft_message(DialogId dialog_id) const;
+
   tl_object_ptr<td_api::messages> get_dialog_history(DialogId dialog_id, MessageId from_message_id, int32 offset,
                                                      int32 limit, int left_tries, bool only_local,
                                                      Promise<Unit> &&promise);
@@ -972,6 +967,8 @@ class MessagesManager final : public Actor {
   void finish_gift_upgrade(MessageFullId message_full_id,
                            Promise<td_api::object_ptr<td_api::upgradeGiftResult>> &&promise);
 
+  void finish_gift_craft(MessageFullId message_full_id, Promise<td_api::object_ptr<td_api::CraftGiftResult>> &&promise);
+
   Result<string> get_login_button_url(MessageFullId message_full_id, int64 button_id);
 
   struct InvoiceMessageInfo {
@@ -1034,6 +1031,7 @@ class MessagesManager final : public Actor {
     int32 edit_date = 0;
     vector<RestrictionReason> restriction_reasons;
     string author_signature;
+    string summary_from_language;
     int64 media_album_id = 0;
     MessageEffectId effect_id;
     int32 report_delivery_until_date = 0;
@@ -1098,6 +1096,7 @@ class MessagesManager final : public Actor {
     vector<RestrictionReason> restriction_reasons;
 
     string author_signature;
+    string summary_from_language;
 
     bool is_channel_post = false;
     bool is_topic_message = false;
@@ -1131,6 +1130,7 @@ class MessagesManager final : public Actor {
     bool clear_draft = false;               // for send_message
     bool in_game_share = false;             // for send_message
     bool initial_is_topic_message = false;  // for send_message
+    bool is_quick_reply_message = false;    // for send_message
     bool hide_via_bot = false;              // for resend_message
     bool is_bot_start_message = false;      // for resend_message
 
@@ -1537,42 +1537,6 @@ class MessagesManager final : public Actor {
     Promise<Unit> success_promise;
   };
 
-  struct MessageSendOptions {
-    bool disable_notification = false;
-    bool from_background = false;
-    bool update_stickersets_order = false;
-    bool protect_content = false;
-    bool allow_paid = false;
-    bool only_preview = false;
-    bool has_suggested_post = false;
-    int32 schedule_date = 0;
-    int32 schedule_repeat_period = 0;
-    int32 sending_id = 0;
-    MessageEffectId effect_id;
-    int64 paid_message_star_count = 0;
-    SuggestedPost suggested_post;
-
-    MessageSendOptions() = default;
-    MessageSendOptions(bool disable_notification, bool from_background, bool update_stickersets_order,
-                       bool protect_content, bool allow_paid, bool only_preview, bool has_suggested_post,
-                       int32 schedule_date, int32 schedule_repeat_period, int32 sending_id, MessageEffectId effect_id,
-                       int64 paid_message_star_count, SuggestedPost &&suggested_post)
-        : disable_notification(disable_notification)
-        , from_background(from_background)
-        , update_stickersets_order(update_stickersets_order)
-        , protect_content(protect_content)
-        , allow_paid(allow_paid)
-        , only_preview(only_preview)
-        , has_suggested_post(has_suggested_post)
-        , schedule_date(schedule_date)
-        , schedule_repeat_period(schedule_repeat_period)
-        , sending_id(sending_id)
-        , effect_id(effect_id)
-        , paid_message_star_count(paid_message_star_count)
-        , suggested_post(std::move(suggested_post)) {
-    }
-  };
-
   struct SuffixLoadQueries {
     bool suffix_load_done_ = false;
     bool suffix_load_has_query_ = false;
@@ -1657,8 +1621,6 @@ class MessagesManager final : public Actor {
 
   static constexpr int32 MAX_RESEND_DELAY = 86400;  // seconds, some reasonable limit
 
-  static constexpr int32 SCHEDULE_WHEN_ONLINE_DATE = 2147483646;
-
   static constexpr bool DROP_SEND_MESSAGE_UPDATES = false;
 
   vector<UserId> get_message_user_ids(const Message *m) const;
@@ -1720,19 +1682,6 @@ class MessagesManager final : public Actor {
       DialogId dialog_id, tl_object_ptr<td_api::InputMessageContent> &&input_message_content,
       bool check_permissions = true);
 
-  Status check_paid_message_star_count(int64 &paid_message_star_count, int32 message_count) const;
-
-  Result<MessageSendOptions> process_message_send_options(DialogId dialog_id,
-                                                          tl_object_ptr<td_api::messageSendOptions> &&options,
-                                                          bool allow_update_stickersets_order, bool allow_effect,
-                                                          bool allow_suggested_post, bool allow_repeat_period,
-                                                          int32 message_count) const;
-
-  static Status can_use_message_send_options(const MessageSendOptions &options,
-                                             const unique_ptr<MessageContent> &content, MessageSelfDestructType ttl);
-
-  static Status can_use_message_send_options(const MessageSendOptions &options, const InputMessageContent &content);
-
   Status can_use_forum_topic_id(Dialog *d, ForumTopicId forum_topic_id);
 
   int64 generate_new_random_id(const Dialog *d);
@@ -1742,14 +1691,14 @@ class MessagesManager final : public Actor {
                                              unique_ptr<MessageContent> &&content, bool invert_media,
                                              bool suppress_reply_info, unique_ptr<MessageForwardInfo> forward_info,
                                              DialogId real_forward_from_dialog_id, bool is_copy,
-                                             DialogId send_as_dialog_id);
+                                             DialogId send_as_dialog_id, bool is_quick_reply_message);
 
   Message *get_message_to_send(Dialog *d, const MessageTopic &message_topic, MessageInputReplyTo &&input_reply_to,
                                const MessageSendOptions &options, unique_ptr<MessageContent> &&content,
                                bool invert_media, bool *need_update_dialog_pos, bool suppress_reply_info = false,
                                unique_ptr<MessageForwardInfo> forward_info = nullptr,
                                DialogId real_forward_from_dialog_id = DialogId(), bool is_copy = false,
-                               DialogId sender_dialog_id = DialogId());
+                               DialogId send_as_dialog_id = DialogId(), bool is_quick_reply_message = false);
 
   int64 begin_send_message(DialogId dialog_id, const Message *m);
 
@@ -1984,7 +1933,7 @@ class MessagesManager final : public Actor {
 
   bool can_forward_message(DialogId from_dialog_id, const Message *m, bool is_copy) const;
 
-  bool can_reply_to_message(DialogId dialog_id, MessageId message_id) const;
+  bool can_reply_to_message(const Dialog *d, MessageId message_id, const Message *m) const;
 
   bool can_reply_to_message_in_another_dialog(DialogId dialog_id, MessageId message_id, bool can_be_forwarded) const;
 
@@ -2476,13 +2425,7 @@ class MessagesManager final : public Actor {
 
   void do_repair_dialog_active_group_call_id(DialogId dialog_id);
 
-  static Result<std::pair<int32, int32>> get_message_schedule_date(
-      td_api::object_ptr<td_api::MessageSchedulingState> &&scheduling_state, bool allow_repeat_period);
-
   tl_object_ptr<td_api::MessageSendingState> get_message_sending_state_object(const Message *m) const;
-
-  static tl_object_ptr<td_api::MessageSchedulingState> get_message_scheduling_state_object(
-      int32 send_date, int32 repeat_period, bool video_processing_pending);
 
   td_api::object_ptr<td_api::MessageContent> get_message_message_content_object(DialogId dialog_id,
                                                                                 const Message *m) const;
@@ -2963,7 +2906,7 @@ class MessagesManager final : public Actor {
                                   unique_ptr<DraftMessage> &&draft_message);
 
   bool update_dialog_draft_message(Dialog *d, unique_ptr<DraftMessage> &&draft_message, bool from_update,
-                                   bool need_update_dialog_pos);
+                                   bool need_update_dialog_pos, bool from_database = false);
 
   void clear_dialog_draft_by_sent_message(Dialog *d, const Message *m, bool need_update_dialog_pos);
 

@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2026
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -142,7 +142,7 @@ void PollManager::Poll::parse(ParserT &parser) {
   if (has_recent_voter_user_ids) {
     vector<UserId> recent_voter_user_ids;
     parse(recent_voter_user_ids, parser);
-    recent_voter_dialog_ids_ = transform(recent_voter_user_ids, [](UserId user_id) { return DialogId(user_id); });
+    recent_voter_dialog_ids_ = DialogId::get_dialog_ids(recent_voter_user_ids);
   }
   if (has_open_period) {
     parse(open_period_, parser);

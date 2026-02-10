@@ -1,5 +1,5 @@
 //
-// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2025
+// Copyright Aliaksei Levin (levlam@telegram.org), Arseny Smirnov (arseny30@gmail.com) 2014-2026
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -256,6 +256,7 @@ class UserManager final : public Actor {
     bool can_read_all_group_messages = false;
     bool has_main_app = false;
     bool has_bot_forum_view = false;
+    bool can_bot_create_topics = false;
     bool is_inline = false;
     bool is_business = false;
     bool need_location = false;
@@ -613,6 +614,7 @@ class UserManager final : public Actor {
     bool can_be_edited_bot = false;
     bool has_main_app = false;
     bool has_bot_forum_view = false;
+    bool can_bot_create_topics = false;
     bool is_inline_bot = false;
     bool is_business_bot = false;
     bool need_location_bot = false;
