@@ -38,7 +38,8 @@ static Result<MessageEntity> parse_message_entity(JsonValue &value) {
   if (type == "messageEntityUnknown" || type == "messageEntityMention" || type == "messageEntityHashtag" ||
       type == "messageEntityCashtag" || type == "messageEntityPhone" || type == "messageEntityBotCommand" ||
       type == "messageEntityBankCard" || type == "messageEntityUrl" || type == "messageEntityEmail" ||
-      type == "messageEntityMentionName" || min_layer > MTPROTO_LAYER) {
+      type == "messageEntityMentionName" || type == "messageEntityFormattedDate" || type == "messageEntityDiffInsert" ||
+      type == "messageEntityDiffReplace" || type == "messageEntityDiffDelete" || min_layer > MTPROTO_LAYER) {
     return Status::Error("Skip");
   }
   if (type == "messageEntityPre") {
@@ -164,7 +165,7 @@ GroupCallMessage::GroupCallMessage(Td *td, DialogId sender_dialog_id, string jso
     return;
   }
   auto text = r_text.move_as_ok();
-  auto status = fix_formatted_text(text.text, text.entities, false, false, true, true, false);
+  auto status = fix_formatted_text(text.text, text.entities, false, false, false, true, true, false);
   if (status.is_error()) {
     LOG(INFO) << "Ignore invalid formatted text: " << status;
     return;

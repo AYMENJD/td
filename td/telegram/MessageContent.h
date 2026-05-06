@@ -18,11 +18,13 @@
 #include "td/telegram/logevent/LogEvent.h"
 #include "td/telegram/MessageContentType.h"
 #include "td/telegram/MessageCopyOptions.h"
+#include "td/telegram/MessageCover.h"
 #include "td/telegram/MessageEntity.h"
 #include "td/telegram/MessageFullId.h"
 #include "td/telegram/MessageId.h"
 #include "td/telegram/MessageSelfDestructType.h"
 #include "td/telegram/Photo.h"
+#include "td/telegram/PollId.h"
 #include "td/telegram/QuickReplyMessageFullId.h"
 #include "td/telegram/ReplyMarkup.h"
 #include "td/telegram/secret_api.h"
@@ -108,7 +110,7 @@ unique_ptr<MessageContent> create_text_message_content(string text, vector<Messa
                                                        bool force_large_media, bool skip_confitmation,
                                                        string &&web_page_url);
 
-unique_ptr<MessageContent> create_photo_message_content(Photo photo);
+unique_ptr<MessageContent> create_photo_message_content(Photo photo, FileId video_file_id);
 
 unique_ptr<MessageContent> create_video_message_content(FileId file_id, Photo cover, int32 start_timestamp);
 
@@ -171,7 +173,7 @@ BackgroundInfo get_message_content_my_background_info(const MessageContent *cont
 
 ChatTheme get_message_content_chat_theme(const MessageContent *content);
 
-MessageFullId get_message_content_replied_message_id(DialogId dialog_id, const MessageContent *content);
+MessageFullId get_message_content_replied_message_full_id(DialogId dialog_id, const MessageContent *content);
 
 std::pair<InputGroupCallId, bool> get_message_content_group_call_info(const MessageContent *content);
 
@@ -183,11 +185,28 @@ vector<UserId> get_message_content_added_user_ids(const MessageContent *content)
 
 UserId get_message_content_deleted_user_id(const MessageContent *content);
 
+telegram_api::object_ptr<telegram_api::inputPhoneCall> get_message_content_input_phone_call(
+    const MessageContent *content);
+
 int32 get_message_content_live_location_period(const MessageContent *content);
+
+PollId get_message_content_poll_id(const MessageContent *content);
 
 bool get_message_content_poll_is_anonymous(const Td *td, const MessageContent *content);
 
 bool get_message_content_poll_is_closed(const Td *td, const MessageContent *content);
+
+bool get_message_content_poll_can_add_option(const Td *td, const MessageContent *content);
+
+bool get_message_content_poll_has_unread_votes(const Td *td, const MessageContent *content);
+
+void remove_message_content_poll_has_unread_votes(Td *td, const MessageContent *content);
+
+void get_message_content_poll_option_properties(Td *td, const MessageContent *content, const string &option_id,
+                                                DialogId dialog_id, MessageId message_id, bool can_be_replied,
+                                                bool can_be_replied_in_another_chat, bool can_get_link, bool is_forward,
+                                                bool is_outgoing,
+                                                Promise<td_api::object_ptr<td_api::pollOptionProperties>> &&promise);
 
 bool get_message_content_to_do_list_others_can_append(const MessageContent *content);
 
@@ -203,16 +222,6 @@ void remove_message_content_web_page(MessageContent *content);
 
 bool can_message_content_have_media_timestamp(const MessageContent *content);
 
-void set_message_content_poll_answer(Td *td, const MessageContent *content, MessageFullId message_full_id,
-                                     vector<int32> &&option_ids, Promise<Unit> &&promise);
-
-void get_message_content_poll_voters(Td *td, const MessageContent *content, MessageFullId message_full_id,
-                                     int32 option_id, int32 offset, int32 limit,
-                                     Promise<td_api::object_ptr<td_api::messageSenders>> &&promise);
-
-void stop_message_content_poll(Td *td, const MessageContent *content, MessageFullId message_full_id,
-                               unique_ptr<ReplyMarkup> &&reply_markup, Promise<Unit> &&promise);
-
 void merge_message_contents(Td *td, const MessageContent *old_content, MessageContent *new_content,
                             bool need_message_changed_warning, DialogId dialog_id, bool need_merge_files,
                             bool &is_content_changed, bool &need_update);
@@ -222,10 +231,11 @@ bool merge_message_content_file_id(Td *td, MessageContent *message_content, File
 void compare_message_contents(Td *td, const MessageContent *lhs_content, const MessageContent *rhs_content,
                               bool &is_content_changed, bool &need_update);
 
-void register_message_content(Td *td, const MessageContent *content, MessageFullId message_full_id, const char *source);
+void register_message_content(Td *td, const MessageContent *content, MessageFullId message_full_id, int32 message_date,
+                              const char *source);
 
 void reregister_message_content(Td *td, const MessageContent *old_content, const MessageContent *new_content,
-                                MessageFullId message_full_id, const char *source);
+                                MessageFullId message_full_id, int32 message_date, const char *source);
 
 void unregister_message_content(Td *td, const MessageContent *content, MessageFullId message_full_id,
                                 const char *source);
@@ -298,9 +308,9 @@ int32 get_message_content_duration(const MessageContent *content, const Td *td);
 
 int32 get_message_content_media_duration(const MessageContent *content, const Td *td);
 
-const Photo *get_message_content_cover(const MessageContent *content);
+bool has_message_content_cover(const MessageContent *content);
 
-vector<const Photo *> get_message_content_need_to_upload_covers(Td *td, const MessageContent *content);
+vector<MessageCover> get_message_content_need_to_upload_covers(Td *td, const MessageContent *content);
 
 FileId get_message_content_any_file_id(const MessageContent *content);
 
@@ -355,8 +365,8 @@ void update_failed_to_send_message_content(Td *td, unique_ptr<MessageContent> &c
 void add_message_content_dependencies(Dependencies &dependencies, const MessageContent *message_content,
                                       UserId my_user_id, bool is_bot);
 
-void update_forum_topic_info_by_service_message_content(Td *td, const MessageContent *content, DialogId dialog_id,
-                                                        ForumTopicId forum_topic_id);
+void apply_updates_from_service_message_content(Td *td, const MessageContent *content, DialogId dialog_id,
+                                                ForumTopicId forum_topic_id, DialogId sender_dialog_id);
 
 void on_sent_message_content(Td *td, const MessageContent *content);
 

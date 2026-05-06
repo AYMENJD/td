@@ -59,8 +59,6 @@ class StickersManager final : public Actor {
  public:
   static constexpr int64 GREAT_MINDS_SET_ID = 1842540969984001;
 
-  static vector<int64> convert_sticker_set_ids(const vector<StickerSetId> &sticker_set_ids);
-
   StickersManager(Td *td, ActorShared<> parent);
   StickersManager(const StickersManager &) = delete;
   StickersManager &operator=(const StickersManager &) = delete;
@@ -248,7 +246,7 @@ class StickersManager final : public Actor {
                                           const char *source);
 
   void on_get_sticker_set_name(StickerSetId sticker_set_id,
-                               telegram_api::object_ptr<telegram_api::messages_StickerSet> &&set_ptr);
+                               Result<telegram_api::object_ptr<telegram_api::messages_StickerSet>> &&r_set_ptr);
 
   void on_get_special_sticker_set(const SpecialStickerSetType &type, StickerSetId sticker_set_id);
 

@@ -27,7 +27,7 @@
 namespace td {
 
 class Dependencies;
-
+class MessageTopic;
 class Td;
 
 class RepliedMessageInfo {
@@ -38,6 +38,7 @@ class RepliedMessageInfo {
   unique_ptr<MessageContent> content_;  // for replies in other chats
   MessageQuote quote_;
   int32 todo_item_id_ = 0;
+  string poll_option_id_;
 
   friend bool operator==(const RepliedMessageInfo &lhs, const RepliedMessageInfo &rhs);
 
@@ -61,7 +62,7 @@ class RepliedMessageInfo {
   RepliedMessageInfo(Td *td, tl_object_ptr<telegram_api::messageReplyHeader> &&reply_header, DialogId dialog_id,
                      MessageId message_id, int32 date);
 
-  RepliedMessageInfo(Td *td, const MessageInputReplyTo &input_reply_to);
+  RepliedMessageInfo(Td *td, const MessageInputReplyTo &input_reply_to, const MessageTopic &topic);
 
   RepliedMessageInfo clone(Td *td) const;
 

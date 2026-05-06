@@ -91,7 +91,12 @@ class CheckChannelUsernameQuery final : public Td::ResultHandler {
   explicit CheckChannelUsernameQuery(Promise<bool> &&promise) : promise_(std::move(promise)) {
   }
 
-  void send(ChannelId channel_id, const string &username) {
+  void send(ChannelId channel_id, const string &username, bool is_bot) {
+    if (is_bot) {
+      CHECK(channel_id == ChannelId());
+      send_query(G()->net_query_creator().create(telegram_api::bots_checkUsername(username), {{"me"}}));
+      return;
+    }
     channel_id_ = channel_id;
     telegram_api::object_ptr<telegram_api::InputChannel> input_channel;
     if (channel_id.is_valid()) {
@@ -101,10 +106,13 @@ class CheckChannelUsernameQuery final : public Td::ResultHandler {
     }
     CHECK(input_channel != nullptr);
     send_query(G()->net_query_creator().create(telegram_api::channels_checkUsername(std::move(input_channel), username),
-                                               {{"me"}}));
+                                               {{"me"}, {channel_id}}));
   }
 
   void on_result(BufferSlice packet) final {
+    static_assert(std::is_same<telegram_api::bots_checkUsername::ReturnType,
+                               telegram_api::channels_checkUsername::ReturnType>::value,
+                  "");
     auto result_ptr = fetch_result<telegram_api::channels_checkUsername>(packet);
     if (result_ptr.is_error()) {
       return on_error(result_ptr.move_as_error());
@@ -403,12 +411,18 @@ class ToggleNoForwardsQuery final : public Td::ResultHandler {
   explicit ToggleNoForwardsQuery(Promise<Unit> &&promise) : promise_(std::move(promise)) {
   }
 
-  void send(DialogId dialog_id, bool has_protected_content) {
+  void send(DialogId dialog_id, MessageId request_message_id, bool has_protected_content) {
     dialog_id_ = dialog_id;
     auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id, AccessRights::Read);
     CHECK(input_peer != nullptr);
+    auto request_msg_id = request_message_id.get_server_message_id().get();
+    int32 flags = 0;
+    if (request_msg_id) {
+      flags |= telegram_api::messages_toggleNoForwards::REQUEST_MSG_ID_MASK;
+    }
     send_query(G()->net_query_creator().create(
-        telegram_api::messages_toggleNoForwards(std::move(input_peer), has_protected_content), {{dialog_id_}}));
+        telegram_api::messages_toggleNoForwards(flags, std::move(input_peer), has_protected_content, request_msg_id),
+        {{dialog_id_}}));
   }
 
   void on_result(BufferSlice packet) final {
@@ -2089,6 +2103,40 @@ CustomEmojiId DialogManager::get_dialog_profile_background_custom_emoji_id(Dialo
   }
 }
 
+DialogParticipantStatus DialogManager::get_dialog_status(DialogId dialog_id) const {
+  switch (dialog_id.get_type()) {
+    case DialogType::User:
+      return DialogParticipantStatus::Member(0, string());
+    case DialogType::Chat:
+      return td_->chat_manager_->get_chat_status(dialog_id.get_chat_id());
+    case DialogType::Channel:
+      return td_->chat_manager_->get_channel_status(dialog_id.get_channel_id());
+    case DialogType::SecretChat:
+      return DialogParticipantStatus::Member(0, string());
+    case DialogType::None:
+    default:
+      UNREACHABLE();
+      return DialogParticipantStatus::Member(0, string());
+  }
+}
+
+DialogParticipantStatus DialogManager::get_dialog_permissions(DialogId dialog_id) const {
+  switch (dialog_id.get_type()) {
+    case DialogType::User:
+      return DialogParticipantStatus::Member(0, string());
+    case DialogType::Chat:
+      return td_->chat_manager_->get_chat_permissions(dialog_id.get_chat_id());
+    case DialogType::Channel:
+      return td_->chat_manager_->get_channel_permissions(dialog_id.get_channel_id());
+    case DialogType::SecretChat:
+      return DialogParticipantStatus::Member(0, string());
+    case DialogType::None:
+    default:
+      UNREACHABLE();
+      return DialogParticipantStatus::Member(0, string());
+  }
+}
+
 RestrictedRights DialogManager::get_dialog_default_permissions(DialogId dialog_id) const {
   switch (dialog_id.get_type()) {
     case DialogType::User:
@@ -2103,7 +2151,7 @@ RestrictedRights DialogManager::get_dialog_default_permissions(DialogId dialog_i
     default:
       UNREACHABLE();
       return RestrictedRights(false, false, false, false, false, false, false, false, false, false, false, false, false,
-                              false, false, false, false, ChannelType::Unknown);
+                              false, false, false, false, false, ChannelType::Unknown);
   }
 }
 
@@ -2159,10 +2207,27 @@ string DialogManager::get_dialog_search_text(DialogId dialog_id) const {
   return string();
 }
 
+bool DialogManager::get_dialog_has_protected_content_force(DialogId dialog_id) {
+  switch (dialog_id.get_type()) {
+    case DialogType::User:
+      return td_->user_manager_->get_user_has_protected_content_force(dialog_id.get_user_id());
+    case DialogType::Chat:
+      return td_->chat_manager_->get_chat_has_protected_content(dialog_id.get_chat_id());
+    case DialogType::Channel:
+      return td_->chat_manager_->get_channel_has_protected_content(dialog_id.get_channel_id());
+    case DialogType::SecretChat:
+      return false;
+    case DialogType::None:
+    default:
+      UNREACHABLE();
+      return true;
+  }
+}
+
 bool DialogManager::get_dialog_has_protected_content(DialogId dialog_id) const {
   switch (dialog_id.get_type()) {
     case DialogType::User:
-      return false;
+      return td_->user_manager_->get_user_has_protected_content(dialog_id.get_user_id());
     case DialogType::Chat:
       return td_->chat_manager_->get_chat_has_protected_content(dialog_id.get_chat_id());
     case DialogType::Channel:
@@ -2585,14 +2650,15 @@ void DialogManager::set_dialog_emoji_status(DialogId dialog_id, const unique_ptr
   promise.set_error(400, "Can't change emoji status in the chat");
 }
 
-void DialogManager::toggle_dialog_has_protected_content(DialogId dialog_id, bool has_protected_content,
+void DialogManager::toggle_dialog_has_protected_content(DialogId dialog_id, MessageId request_message_id,
+                                                        bool is_request, bool has_protected_content,
                                                         Promise<Unit> &&promise) {
   TRY_STATUS_PROMISE(promise,
                      check_dialog_access(dialog_id, false, AccessRights::Read, "toggle_dialog_has_protected_content"));
 
   switch (dialog_id.get_type()) {
     case DialogType::User:
-      return promise.set_error(400, "Can't restrict saving content in the chat");
+      break;
     case DialogType::Chat: {
       auto chat_id = dialog_id.get_chat_id();
       auto status = td_->chat_manager_->get_chat_status(chat_id);
@@ -2613,13 +2679,16 @@ void DialogManager::toggle_dialog_has_protected_content(DialogId dialog_id, bool
     default:
       UNREACHABLE();
   }
-
-  // TODO this can be wrong if there were previous toggle_dialog_has_protected_content requests
-  if (get_dialog_has_protected_content(dialog_id) == has_protected_content) {
-    return promise.set_value(Unit());
+  if (is_request) {
+    if (!request_message_id.is_server()) {
+      return promise.set_error(400, "Invalid message identifier specified");
+    }
+  } else {
+    CHECK(request_message_id == MessageId());
   }
 
-  td_->create_handler<ToggleNoForwardsQuery>(std::move(promise))->send(dialog_id, has_protected_content);
+  td_->create_handler<ToggleNoForwardsQuery>(std::move(promise))
+      ->send(dialog_id, request_message_id, has_protected_content);
 }
 
 void DialogManager::set_dialog_description(DialogId dialog_id, const string &description, Promise<Unit> &&promise) {
@@ -2888,7 +2957,7 @@ void DialogManager::on_dialog_usernames_received(DialogId dialog_id, const Usern
   }
 }
 
-void DialogManager::check_dialog_username(DialogId dialog_id, const string &username,
+void DialogManager::check_dialog_username(DialogId dialog_id, const string &username, bool is_bot,
                                           Promise<CheckDialogUsernameResult> &&promise) {
   if (dialog_id != DialogId() && dialog_id.get_type() != DialogType::User &&
       !have_dialog_force(dialog_id, "check_dialog_username")) {
@@ -2926,7 +2995,7 @@ void DialogManager::check_dialog_username(DialogId dialog_id, const string &user
   }
 
   if (username.empty()) {
-    return promise.set_value(CheckDialogUsernameResult::Ok);
+    return promise.set_value(is_bot ? CheckDialogUsernameResult::Invalid : CheckDialogUsernameResult::Ok);
   }
 
   if (!is_allowed_username(username) && username.size() != 4) {
@@ -2962,9 +3031,10 @@ void DialogManager::check_dialog_username(DialogId dialog_id, const string &user
       return td_->create_handler<CheckUsernameQuery>(std::move(request_promise))->send(username);
     case DialogType::Channel:
       return td_->create_handler<CheckChannelUsernameQuery>(std::move(request_promise))
-          ->send(dialog_id.get_channel_id(), username);
+          ->send(dialog_id.get_channel_id(), username, is_bot);
     case DialogType::None:
-      return td_->create_handler<CheckChannelUsernameQuery>(std::move(request_promise))->send(ChannelId(), username);
+      return td_->create_handler<CheckChannelUsernameQuery>(std::move(request_promise))
+          ->send(ChannelId(), username, is_bot);
     case DialogType::Chat:
     case DialogType::SecretChat:
     default:

@@ -19,7 +19,6 @@
 #include "td/telegram/Global.h"
 #include "td/telegram/MessageEntity.h"
 #include "td/telegram/MessageId.h"
-#include "td/telegram/MessageQuote.h"
 #include "td/telegram/MessageSender.h"
 #include "td/telegram/MessagesManager.h"
 #include "td/telegram/misc.h"
@@ -127,6 +126,12 @@ static td_api::object_ptr<td_api::PremiumFeature> get_premium_feature_object(Sli
   if (premium_feature == "paid_messages") {
     return td_api::make_object<td_api::premiumFeaturePaidMessages>();
   }
+  if (premium_feature == "pm_noforwards") {
+    return td_api::make_object<td_api::premiumFeatureProtectPrivateChatContent>();
+  }
+  if (premium_feature == "ai_compose") {
+    return td_api::make_object<td_api::premiumFeatureTextComposition>();
+  }
   if (G()->is_test_dc()) {
     LOG(ERROR) << "Receive unsupported premium feature " << premium_feature;
   }
@@ -202,7 +207,7 @@ Result<telegram_api::object_ptr<telegram_api::textWithEntities>> get_premium_gif
     Td *td, td_api::object_ptr<td_api::formattedText> &&text) {
   TRY_RESULT(message, get_formatted_text(td, td->dialog_manager_->get_my_dialog_id(), std::move(text), false, true,
                                          true, false));
-  MessageQuote::remove_unallowed_quote_entities(message);
+  remove_unallowed_quote_entities(message);
   if (!message.text.empty()) {
     return get_input_text_with_entities(td->user_manager_.get(), message, "get_premium_gift_text");
   }
@@ -346,8 +351,9 @@ class GetPremiumPromoQuery final : public Td::ResultHandler {
         continue;
       }
 
-      auto parsed_document = td_->documents_manager_->on_get_document(
-          move_tl_object_as<telegram_api::document>(video), DialogId(), false, nullptr, Document::Type::Animation);
+      auto parsed_document =
+          td_->documents_manager_->on_get_document(move_tl_object_as<telegram_api::document>(video), DialogId(), false,
+                                                   false, nullptr, Document::Type::Animation);
 
       if (parsed_document.type != Document::Type::Animation) {
         LOG(ERROR) << "Receive " << parsed_document.type << " for " << promo->video_sections_[i];
@@ -939,7 +945,8 @@ const vector<Slice> &get_premium_limit_keys() {
                                         "stories_sent_monthly",
                                         "stories_suggested_reactions",
                                         "recommended_channels",
-                                        "saved_dialogs_pinned"};
+                                        "saved_dialogs_pinned",
+                                        "bots_create"};
   return limit_keys;
 }
 
@@ -984,6 +991,8 @@ static Slice get_limit_type_key(const td_api::PremiumLimitType *limit_type) {
       return Slice("stories_suggested_reactions");
     case td_api::premiumLimitTypeSimilarChatCount::ID:
       return Slice("recommended_channels");
+    case td_api::premiumLimitTypeOwnedBotCount::ID:
+      return Slice("bots_create");
     default:
       UNREACHABLE();
       return Slice();
@@ -1056,6 +1065,10 @@ static string get_premium_source(const td_api::PremiumFeature *feature) {
       return "todo";
     case td_api::premiumFeaturePaidMessages::ID:
       return "paid_messages";
+    case td_api::premiumFeatureProtectPrivateChatContent::ID:
+      return "pm_noforwards";
+    case td_api::premiumFeatureTextComposition::ID:
+      return "ai_compose";
     default:
       UNREACHABLE();
   }
@@ -1222,6 +1235,9 @@ static td_api::object_ptr<td_api::premiumLimit> get_premium_limit_object(Slice k
     if (key == "recommended_channels") {
       return td_api::make_object<td_api::premiumLimitTypeSimilarChatCount>();
     }
+    if (key == "bots_create") {
+      return td_api::make_object<td_api::premiumLimitTypeOwnedBotCount>();
+    }
     UNREACHABLE();
     return nullptr;
   }();
@@ -1240,11 +1256,11 @@ void get_premium_limit(const td_api::object_ptr<td_api::PremiumLimitType> &limit
 void get_premium_features(Td *td, const td_api::object_ptr<td_api::PremiumSource> &source,
                           Promise<td_api::object_ptr<td_api::premiumFeatures>> &&promise) {
   auto premium_features = full_split(
-      G()->get_option_string(
-          "premium_features",
-          "stories,more_upload,double_limits,business,last_seen,voice_to_text,faster_download,translations,animated_"
-          "emoji,emoji_status,saved_tags,peer_colors,wallpapers,profile_badge,message_privacy,advanced_chat_management,"
-          "no_ads,app_icons,infinite_reactions,animated_userpics,premium_stickers,effects,todo"),
+      G()->get_option_string("premium_features",
+                             "stories,more_upload,double_limits,business,last_seen,voice_to_text,faster_download,"
+                             "translations,animated_emoji,emoji_status,saved_tags,peer_colors,wallpapers,profile_badge,"
+                             "message_privacy,advanced_chat_management,no_ads,app_icons,infinite_reactions,animated_"
+                             "userpics,premium_stickers,effects,todo,paid_messages,pm_noforwards,ai_compose"),
       ',');
   vector<td_api::object_ptr<td_api::PremiumFeature>> features;
   for (const auto &premium_feature : premium_features) {

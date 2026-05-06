@@ -463,6 +463,11 @@ bool DialogAction::is_canceled_by_message_of_type(MessageContentType message_con
     case MessageContentType::StarGiftPurchaseOfferDeclined:
     case MessageContentType::NewCreatorPending:
     case MessageContentType::ChangeCreator:
+    case MessageContentType::NoForwardsToggle:
+    case MessageContentType::NoForwardsRequest:
+    case MessageContentType::ManagedBotCreated:
+    case MessageContentType::PollAppendAnswer:
+    case MessageContentType::PollDeleteAnswer:
       return false;
     default:
       UNREACHABLE();
