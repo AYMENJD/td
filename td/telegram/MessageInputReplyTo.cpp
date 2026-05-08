@@ -148,8 +148,9 @@ telegram_api::object_ptr<telegram_api::InputReplyTo> MessageInputReplyTo::get_in
     flags |= telegram_api::inputReplyToMessage::POLL_OPTION_MASK;
   }
   if (reply_to_message_id != MessageId() && !reply_to_message_id.is_server()) {
-    LOG(FATAL) << *this << " in " << message_topic << " in " << for_dialog_id << " with flags " << with_flags
-               << " from " << (debug_source_ == nullptr ? "null" : debug_source_);
+    LOG(FATAL) << *this << " in " << message_topic << " in " << for_dialog_id << " for "
+               << (for_draft ? "draft" : "message") << " with flags " << with_flags << " from "
+               << (debug_source_ == nullptr ? "null" : debug_source_);
   }
   auto result = telegram_api::make_object<telegram_api::inputReplyToMessage>(
       flags, reply_to_message_id.get_server_message_id().get(), top_msg_id, std::move(input_peer), string(), Auto(), 0,

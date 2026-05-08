@@ -429,25 +429,9 @@ class ChatManager final : public Actor {
     ChannelId migrated_to_channel_id;
 
     DialogParticipantStatus status = DialogParticipantStatus::Banned(0, string());
-    RestrictedRights default_permissions{false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         ChannelType::Unknown};
+    RestrictedRights default_permissions{
+        false, false, false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false, false, ChannelType::Unknown};
 
     static constexpr uint32 CACHE_VERSION = 5;
     uint32 cache_version = 0;
@@ -526,25 +510,9 @@ class ChatManager final : public Actor {
     Usernames usernames;
     vector<RestrictionReason> restriction_reasons;
     DialogParticipantStatus status = DialogParticipantStatus::Banned(0, string());
-    RestrictedRights default_permissions{false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         false,
-                                         ChannelType::Unknown};
+    RestrictedRights default_permissions{
+        false, false, false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false, false, ChannelType::Unknown};
     int32 date = 0;
     int32 participant_count = 0;
     int32 boost_level = 0;

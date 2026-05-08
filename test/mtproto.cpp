@@ -35,6 +35,7 @@
 #include "td/utils/crypto.h"
 #include "td/utils/HttpDate.h"
 #include "td/utils/logging.h"
+#include "td/utils/misc.h"
 #include "td/utils/port/Clocks.h"
 #include "td/utils/port/IPAddress.h"
 #include "td/utils/port/SocketFd.h"
