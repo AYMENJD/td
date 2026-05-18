@@ -11619,7 +11619,8 @@ MessageFullId MessagesManager::on_get_message(MessageInfo &&message_info, const 
   DialogId dialog_id;
   unique_ptr<Message> new_message;
   auto report_delivery_until_date = message_info.report_delivery_until_date;
-  std::tie(dialog_id, new_message) = create_message(td_, std::move(message_info), false, source);
+  auto is_guest_message = message_info.guest_bot_via_dialog_id != DialogId();
+  std::tie(dialog_id, new_message) = create_message(td_, std::move(message_info), is_guest_message, source);
   if (new_message == nullptr) {
     return MessageFullId();
   }
