@@ -332,7 +332,8 @@ void NotificationManager::save_announcement_ids() {
     return;
   }
 
-  auto notification_announcement_ids_string = implode(transform(stored_ids, to_string<int32>));
+  auto notification_announcement_ids_string =
+      implode(transform(stored_ids, [](int32 stored_id) { return to_string(stored_id); }));
   G()->td_db()->get_binlog_pmc()->set("notification_announcement_ids", notification_announcement_ids_string);
 }
 
@@ -3997,7 +3998,7 @@ Result<string> NotificationManager::decrypt_push_payload(int64 encryption_key_id
   packet_info.is_creator = true;
   packet_info.check_mod4 = false;
 
-  TRY_RESULT(result, mtproto::Transport::read(payload, auth_key, &packet_info));
+  TRY_RESULT(result, mtproto::Transport::read(payload, 0, auth_key, &packet_info));
   if (result.type() != mtproto::Transport::ReadResult::Packet) {
     return Status::Error(400, "Wrong packet type");
   }
