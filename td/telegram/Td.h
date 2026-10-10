@@ -106,6 +106,7 @@ class SuggestedActionManager;
 class TermsOfServiceManager;
 class ThemeManager;
 class TimeZoneManager;
+class TonWalletManager;
 class TopDialogManager;
 class TranscriptionManager;
 class TranslationManager;
@@ -117,6 +118,7 @@ class VoiceNotesManager;
 class WebAppManager;
 class WebBrowserManager;
 class WebPagesManager;
+class WelcomeMessageManager;
 
 extern int VERBOSITY_NAME(td_init);
 extern int VERBOSITY_NAME(td_requests);
@@ -280,6 +282,8 @@ class Td final : public Actor {
   ActorOwn<ThemeManager> theme_manager_actor_;
   unique_ptr<TimeZoneManager> time_zone_manager_;
   ActorOwn<TimeZoneManager> time_zone_manager_actor_;
+  unique_ptr<TonWalletManager> ton_wallet_manager_;
+  ActorOwn<TonWalletManager> ton_wallet_manager_actor_;
   unique_ptr<TopDialogManager> top_dialog_manager_;
   ActorOwn<TopDialogManager> top_dialog_manager_actor_;
   unique_ptr<TranscriptionManager> transcription_manager_;
@@ -300,6 +304,8 @@ class Td final : public Actor {
   ActorOwn<WebBrowserManager> web_browser_manager_actor_;
   unique_ptr<WebPagesManager> web_pages_manager_;
   ActorOwn<WebPagesManager> web_pages_manager_actor_;
+  unique_ptr<WelcomeMessageManager> welcome_message_manager_;
+  ActorOwn<WelcomeMessageManager> welcome_message_manager_actor_;
 
   ActorOwn<AlarmManager> alarm_manager_;
   ActorOwn<HashtagHints> cashtag_search_hints_;

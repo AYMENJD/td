@@ -52,6 +52,7 @@ void HttpConnectionBase::start_up() {
   live_event();
   yield();
 }
+
 void HttpConnectionBase::tear_down() {
   Scheduler::unsubscribe_before_close(fd_.get_poll_info().get_pollable_fd_ref());
   fd_.close();
@@ -61,6 +62,7 @@ void HttpConnectionBase::write_next_noflush(BufferSlice buffer) {
   CHECK(state_ == State::Write);
   write_buffer_.append(std::move(buffer));
 }
+
 void HttpConnectionBase::write_next(BufferSlice buffer) {
   write_next_noflush(std::move(buffer));
   loop();
@@ -92,6 +94,7 @@ void HttpConnectionBase::timeout_expired() {
 
   stop();
 }
+
 void HttpConnectionBase::loop() {
   if (ssl_stream_) {
     //ssl_stream_.read_byte_flow().set_need_size(0);
@@ -99,22 +102,24 @@ void HttpConnectionBase::loop() {
   }
   sync_with_poll(fd_);
   bool need_read_more = false;
-  if (can_read_local(fd_)) {
-    LOG(DEBUG) << "Can read from the connection";
-    auto r = fd_.flush_read(MAX_READ_SIZE);
-    if (r.is_error()) {
-      if (!begins_with(r.error().message(), "SSL error {336134278")) {  // if error is not yet outputted
-        LOG(INFO) << "Receive flush_read error: " << r.error();
-      }
-      on_error(Status::Error(r.error().public_message()));
-      return stop();
-    } else if (r.ok() == MAX_READ_SIZE) {
+  if (state_ == State::Read && can_read_local(fd_)) {
+    if (read_sink_.get_read_size() >= MAX_READ_SIZE) {
       need_read_more = true;
+    } else {
+      LOG(DEBUG) << "Can read from the connection";
+      auto r = fd_.flush_read(MAX_READ_SIZE);
+      if (r.is_error()) {
+        if (!begins_with(r.error().message(), "SSL error {336134278")) {  // if error is not yet outputted
+          LOG(INFO) << "Receive flush_read error: " << r.error();
+        }
+        on_error(Status::Error(r.error().public_message()));
+        return stop();
+      } else if (r.ok() == MAX_READ_SIZE) {
+        need_read_more = true;
+      }
     }
   }
   read_source_.wakeup();
-
-  // TODO: read_next even when state_ == State::Write
 
   bool want_read = false;
   bool can_be_slow = slow_scheduler_id_ == -1;
@@ -199,7 +204,7 @@ void HttpConnectionBase::loop() {
     return stop();
   }
 
-  if (need_read_more) {
+  if (state_ == State::Read && need_read_more) {
     // reading was suspended because of MAX_READ_SIZE, but there can be more data available
     yield();
   }

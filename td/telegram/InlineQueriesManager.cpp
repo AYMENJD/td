@@ -22,6 +22,7 @@
 #include "td/telegram/Global.h"
 #include "td/telegram/InputInvoice.h"
 #include "td/telegram/InputMessageText.h"
+#include "td/telegram/KeyboardButton.h"
 #include "td/telegram/LinkManager.h"
 #include "td/telegram/Location.h"
 #include "td/telegram/MessageContent.h"
@@ -274,7 +275,7 @@ class SavePreparedKeyboardButtonQuery final : public Td::ResultHandler {
 
   void send(telegram_api::object_ptr<telegram_api::InputUser> &&input_user, const KeyboardButton &keyboard_button) {
     send_query(G()->net_query_creator().create(
-        telegram_api::bots_requestWebViewButton(std::move(input_user), get_input_keyboard_button(keyboard_button))));
+        telegram_api::bots_requestWebViewButton(std::move(input_user), keyboard_button.get_input_keyboard_button())));
   }
 
   void on_result(BufferSlice packet) final {
@@ -319,14 +320,15 @@ class GetRequestedWebViewButtonQuery final : public Td::ResultHandler {
 
     auto ptr = result_ptr.move_as_ok();
     LOG(INFO) << "Receive result for GetRequestedWebViewButtonQuery: " << to_string(ptr);
-    if (ptr->get_id() != telegram_api::keyboardButtonRequestPeer::ID) {
+    const auto keyboard_button = KeyboardButton(std::move(ptr));
+    const auto *requested_dialog_type = keyboard_button.get_requested_dialog_type();
+    if (requested_dialog_type == nullptr) {
       LOG(ERROR) << to_string(ptr);
       return on_error(Status::Error(500, "Receive invalid button type"));
     }
-    auto keyboard_button = get_keyboard_button(std::move(ptr));
     td_->inline_queries_manager_->on_get_requested_web_view_button(bot_user_id_, prepared_button_id_,
-                                                                   keyboard_button.requested_dialog_type.get());
-    promise_.set_value(get_keyboard_button_object(keyboard_button));
+                                                                   requested_dialog_type);
+    promise_.set_value(keyboard_button.get_keyboard_button_object());
   }
 
   void on_error(Status status) final {
@@ -461,6 +463,8 @@ InlineQueriesManager::InlineQueriesManager(Td *td, ActorShared<> parent) : td_(t
 
   next_inline_query_time_ = Time::now();
 }
+
+InlineQueriesManager::~InlineQueriesManager() = default;
 
 void InlineQueriesManager::tear_down() {
   parent_.reset();
@@ -731,7 +735,7 @@ void InlineQueriesManager::answer_inline_query(
         if (r_url.is_error()) {
           return promise.set_error(400, PSLICE() << "Inline query button Web App " << r_url.error().message());
         }
-        web_view = telegram_api::make_object<telegram_api::inlineBotWebView>(button->text_, type->url_);
+        web_view = telegram_api::make_object<telegram_api::inlineBotWebView>(button->text_, r_url.ok());
         break;
       }
       default:
@@ -810,7 +814,7 @@ void InlineQueriesManager::save_prepared_keyboard_button(UserId user_id,
                                                          td_api::object_ptr<td_api::keyboardButton> &&button,
                                                          Promise<string> &&promise) {
   TRY_RESULT_PROMISE(promise, input_user, td_->user_manager_->get_input_user(user_id));
-  TRY_RESULT_PROMISE(promise, keyboard_button, get_keyboard_button(std::move(button), true));
+  TRY_RESULT_PROMISE(promise, keyboard_button, KeyboardButton::get_keyboard_button(std::move(button), true));
 
   td_->create_handler<SavePreparedKeyboardButtonQuery>(std::move(promise))
       ->send(std::move(input_user), keyboard_button);
@@ -2155,18 +2159,7 @@ td_api::object_ptr<td_api::InlineQueryResult> InlineQueriesManager::get_inline_q
         break;
       }
 
-      auto attributes = [content = result->content_.get()] {
-        switch (content->get_id()) {
-          case telegram_api::webDocument::ID:
-            return std::move(static_cast<telegram_api::webDocument *>(content)->attributes_);
-          case telegram_api::webDocumentNoProxy::ID:
-            return std::move(static_cast<telegram_api::webDocumentNoProxy *>(content)->attributes_);
-          default:
-            UNREACHABLE();
-            return vector<telegram_api::object_ptr<telegram_api::DocumentAttribute>>();
-        }
-      }();
-
+      auto attributes = DocumentsManager::extract_web_document_attributes(result->content_.get());
       bool is_animation = result->type_ == "gif" && (content_type == "image/gif" || content_type == "video/mp4");
       if (is_animation) {
         attributes.push_back(telegram_api::make_object<telegram_api::documentAttributeAnimated>());

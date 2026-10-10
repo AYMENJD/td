@@ -44,6 +44,12 @@ static bool has_qts_messages(const Td *td, DialogId dialog_id) {
   }
 }
 
+RepliedMessageInfo::RepliedMessageInfo() = default;
+
+RepliedMessageInfo::RepliedMessageInfo(RepliedMessageInfo &&) noexcept = default;
+
+RepliedMessageInfo &RepliedMessageInfo::operator=(RepliedMessageInfo &&) noexcept = default;
+
 RepliedMessageInfo::~RepliedMessageInfo() = default;
 
 RepliedMessageInfo::RepliedMessageInfo(Td *td, tl_object_ptr<telegram_api::messageReplyHeader> &&reply_header,
@@ -199,6 +205,13 @@ RepliedMessageInfo::RepliedMessageInfo(Td *td, const MessageInputReplyTo &input_
   }
 }
 
+RepliedMessageInfo RepliedMessageInfo::legacy(MessageId reply_to_message_id, DialogId reply_in_dialog_id) {
+  RepliedMessageInfo result;
+  result.message_id_ = reply_to_message_id;
+  result.dialog_id_ = reply_in_dialog_id;
+  return result;
+}
+
 RepliedMessageInfo RepliedMessageInfo::clone(Td *td) const {
   RepliedMessageInfo result;
   result.message_id_ = message_id_;
@@ -207,7 +220,7 @@ RepliedMessageInfo RepliedMessageInfo::clone(Td *td) const {
   result.origin_ = origin_;
   if (content_ != nullptr) {
     result.content_ = dup_message_content(td, td->dialog_manager_->get_my_dialog_id(), content_.get(),
-                                          MessageContentDupType::Forward, MessageCopyOptions());
+                                          MessageContentDupType::Forward, false, MessageCopyOptions());
   }
   result.quote_ = quote_.clone();
   result.todo_item_id_ = todo_item_id_;

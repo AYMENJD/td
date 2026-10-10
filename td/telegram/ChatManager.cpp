@@ -52,6 +52,7 @@
 #include "td/telegram/UpdatesManager.h"
 #include "td/telegram/UserManager.h"
 #include "td/telegram/VerificationStatus.h"
+#include "td/telegram/WelcomeMessageManager.h"
 
 #include "td/db/binlog/BinlogEvent.h"
 #include "td/db/binlog/BinlogHelper.h"
@@ -3554,7 +3555,7 @@ Status ChatManager::can_hide_chat_participants(ChatId chat_id) const {
   if (c == nullptr) {
     return Status::Error(400, "Basic group not found");
   }
-  if (!get_chat_permissions(c).is_creator()) {
+  if (!get_chat_status(c).is_creator()) {
     return Status::Error(400, "Not enough rights to hide group members");
   }
   if (c->participant_count < td_->option_manager_->get_option_integer("hidden_members_group_size_min")) {
@@ -3597,7 +3598,7 @@ Status ChatManager::can_toggle_chat_aggressive_anti_spam(ChatId chat_id) const {
   if (c == nullptr) {
     return Status::Error(400, "Basic group not found");
   }
-  if (!get_chat_permissions(c).is_creator()) {
+  if (!get_chat_status(c).is_creator()) {
     return Status::Error(400, "Not enough rights to enable aggressive anti-spam checks");
   }
   if (c->participant_count <
@@ -5126,7 +5127,7 @@ void ChatManager::on_load_channel_full_from_database(ChannelId channel_id, strin
   Dependencies dependencies;
   dependencies.add(channel_id);
   // must not depend on the linked_dialog_id/monoforum_dialog_id itself, because message database can be disabled
-  // the Dialog will be forcely created in update_channel_full
+  // the Dialog will be forcibly created in update_channel_full
   dependencies.add_dialog_dependencies(DialogId(channel_full->linked_channel_id));
   dependencies.add_dialog_dependencies(DialogId(channel_full->monoforum_channel_id));
   dependencies.add(channel_full->linked_community_id);
@@ -5785,6 +5786,11 @@ void ChatManager::on_get_chat_full(tl_object_ptr<telegram_api::ChatFull> &&chat_
 
       td_->messages_manager_->on_update_dialog_has_scheduled_server_messages(DialogId(chat_id), chat->has_scheduled_);
 
+      td_->messages_manager_->on_update_dialog_has_welcome_messages(DialogId(chat_id), chat->has_welcome_messages_);
+      if (!chat->has_welcome_messages_) {
+        td_->welcome_message_manager_->drop_welcome_messages(DialogId(chat_id), true);
+      }
+
       {
         InputGroupCallId input_group_call_id;
         if (chat->call_ != nullptr) {
@@ -6069,6 +6075,13 @@ void ChatManager::on_get_chat_full(tl_object_ptr<telegram_api::ChatFull> &&chat_
 
       td_->messages_manager_->on_update_dialog_has_scheduled_server_messages(DialogId(channel_id),
                                                                              channel->has_scheduled_);
+
+      td_->messages_manager_->on_update_dialog_has_welcome_messages(DialogId(channel_id),
+                                                                    channel->has_welcome_messages_);
+      if (!channel->has_welcome_messages_) {
+        td_->welcome_message_manager_->drop_welcome_messages(DialogId(channel_id), true);
+      }
+
       {
         InputGroupCallId input_group_call_id;
         if (channel->call_ != nullptr) {
@@ -7247,6 +7260,8 @@ void ChatManager::on_update_chat_status(Chat *c, ChatId chat_id, DialogParticipa
     LOG(INFO) << "Update " << chat_id << " status from " << c->status << " to " << status;
     bool need_reload_group_call = c->status.can_manage_calls() != status.can_manage_calls();
     bool need_drop_invite_link = c->status.can_manage_invite_links() && !status.can_manage_invite_links();
+    bool need_drop_welcome_messages = c->status.can_change_info_and_settings_as_administrator() &&
+                                      !status.can_change_info_and_settings_as_administrator();
 
     c->status = std::move(status);
     c->is_status_changed = true;
@@ -7268,6 +7283,9 @@ void ChatManager::on_update_chat_status(Chat *c, ChatId chat_id, DialogParticipa
     if (need_reload_group_call) {
       send_closure_later(G()->messages_manager(), &MessagesManager::on_update_dialog_group_call_rights,
                          DialogId(chat_id));
+    }
+    if (need_drop_welcome_messages) {
+      td_->welcome_message_manager_->drop_welcome_messages(DialogId(chat_id), false);
     }
 
     c->is_changed = true;
@@ -7693,12 +7711,13 @@ void ChatManager::on_update_channel_status(Channel *c, ChannelId channel_id, Dia
   if (c->is_monoforum) {
     if (status.is_member()) {
       // monoforums have no member tags
-      status = c->is_admined_monoforum && !td_->auth_manager_->is_bot()
-                   ? DialogParticipantStatus::Administrator(
-                         AdministratorRights(true, true, false, false, false, false, false, false, false, false, false,
-                                             false, false, false, false, false, false, false, ChannelType::Megagroup),
-                         string(), false)
-                   : DialogParticipantStatus::Member(0, string());
+      status =
+          c->is_admined_monoforum && !td_->auth_manager_->is_bot()
+              ? DialogParticipantStatus::Administrator(
+                    AdministratorRights(true, true, false, false, false, false, false, false, false, false, false,
+                                        false, false, false, false, false, false, false, false, ChannelType::Megagroup),
+                    string(), false)
+              : DialogParticipantStatus::Member(0, string());
     } else {
       status = DialogParticipantStatus::Left();
     }
@@ -7734,6 +7753,12 @@ void ChatManager::on_channel_status_changed(Channel *c, ChannelId channel_id, co
   } else {
     invalidate_channel_full(channel_id, !c->is_slow_mode_enabled, "on_channel_status_changed");
   }
+  bool need_drop_welcome_messages = old_status.can_change_info_and_settings_as_administrator() &&
+                                    !new_status.can_change_info_and_settings_as_administrator();
+  if (need_drop_welcome_messages) {
+    send_closure_later(G()->welcome_message_manager(), &WelcomeMessageManager::drop_welcome_messages,
+                       DialogId(channel_id), false);
+  }
 
   if (old_status.is_creator() != new_status.is_creator()) {
     c->is_creator_changed = true;
@@ -7747,7 +7772,7 @@ void ChatManager::on_channel_status_changed(Channel *c, ChannelId channel_id, co
   if (old_status.is_member() != new_status.is_member() || new_status.is_banned()) {
     td_->dialog_invite_link_manager_->remove_dialog_access_by_invite_link(DialogId(channel_id));
 
-    if (new_status.is_member() || new_status.is_creator()) {
+    if ((new_status.is_member() || new_status.is_creator()) && have_channel_full) {
       reload_channel_full(channel_id,
                           PromiseCreator::lambda([channel_id](Unit) { LOG(INFO) << "Reloaded full " << channel_id; }),
                           "on_channel_status_changed");
@@ -8124,6 +8149,20 @@ void ChatManager::on_update_channel_linked_channel_id(ChannelId channel_id, Chan
     if (channel_full != nullptr) {
       update_channel_full(channel_full, group_channel_id, "on_update_channel_linked_channel_id 4");
     }
+  }
+}
+
+void ChatManager::on_update_channel_linked_community_id(ChannelId channel_id, CommunityId linked_community_id) {
+  auto c = get_channel(channel_id);
+  if (c != nullptr && c->linked_community_id != linked_community_id) {
+    c->linked_community_id = linked_community_id;
+    c->need_save_to_database = true;
+    update_channel(c, channel_id);
+  }
+  auto channel_full = get_channel_full_force(channel_id, true, "on_update_channel_linked_community_id");
+  if (channel_full != nullptr) {
+    on_update_channel_full_linked_community_id(channel_full, channel_id, linked_community_id);
+    update_channel_full(channel_full, channel_id, "on_update_channel_linked_community_id");
   }
 }
 
@@ -8766,15 +8805,12 @@ bool ChatManager::get_channel_join_request(const Channel *c) {
   return c->join_request && c->is_megagroup && !c->is_monoforum && !c->is_gigagroup;
 }
 
-ChannelId ChatManager::get_channel_linked_channel_id(ChannelId channel_id, const char *source) {
+ChannelId ChatManager::get_channel_linked_channel_id(ChannelId channel_id, bool force, const char *source) {
   auto channel_full = get_channel_full_const(channel_id);
-  if (channel_full == nullptr) {
+  if (channel_full == nullptr && force) {
     channel_full = get_channel_full_force(channel_id, true, source);
-    if (channel_full == nullptr) {
-      return ChannelId();
-    }
   }
-  return channel_full->linked_channel_id;
+  return channel_full == nullptr ? ChannelId() : channel_full->linked_channel_id;
 }
 
 int32 ChatManager::get_channel_slow_mode_delay(ChannelId channel_id, const char *source) {
@@ -9893,10 +9929,11 @@ td_api::object_ptr<td_api::supergroupFullInfo> ChatManager::get_supergroup_full_
       get_chat_photo_object(td_->file_manager_.get(), *photo),
       td_->community_manager_->get_community_id_object(channel_full->linked_community_id, "supergroupFullInfo"),
       channel_full->description, channel_full->participant_count, channel_full->administrator_count,
-      channel_full->restricted_count, channel_full->banned_count, DialogId(channel_full->linked_channel_id).get(),
-      DialogId(channel_full->monoforum_channel_id).get(), channel_full->slow_mode_delay, slow_mode_delay_expires_in,
-      channel_full->has_paid_messages_available, channel_full->has_paid_media_allowed,
-      channel_full->can_get_participants, has_hidden_participants,
+      channel_full->restricted_count, channel_full->banned_count,
+      td_->dialog_manager_->get_chat_id_object(DialogId(channel_full->linked_channel_id), "linked chat"),
+      td_->dialog_manager_->get_chat_id_object(DialogId(channel_full->monoforum_channel_id), "monoforum chat"),
+      channel_full->slow_mode_delay, slow_mode_delay_expires_in, channel_full->has_paid_messages_available,
+      channel_full->has_paid_media_allowed, channel_full->can_get_participants, has_hidden_participants,
       can_hide_channel_participants(channel_id, channel_full).is_ok(), channel_full->can_set_sticker_set,
       channel_full->can_set_location, channel_full->can_view_statistics, channel_full->can_view_revenue,
       channel_full->can_view_star_revenue, channel_full->has_stargifts_available,

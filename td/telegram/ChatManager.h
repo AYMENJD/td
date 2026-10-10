@@ -174,6 +174,7 @@ class ChatManager final : public Actor {
   void on_update_channel_unrestrict_boost_count(ChannelId channel_id, int32 unrestrict_boost_count);
   void on_update_channel_gift_count(ChannelId channel_id, int32 gift_count, bool is_added);
   void on_update_channel_linked_channel_id(ChannelId channel_id, ChannelId group_channel_id);
+  void on_update_channel_linked_community_id(ChannelId channel_id, CommunityId linked_community_id);
   void on_update_channel_location(ChannelId channel_id, const DialogLocation &location);
   void on_update_channel_slow_mode_delay(ChannelId channel_id, int32 slow_mode_delay, Promise<Unit> &&promise);
   void on_update_channel_slow_mode_next_send_date(ChannelId channel_id, int32 slow_mode_next_send_date);
@@ -390,7 +391,7 @@ class ChatManager final : public Actor {
   bool get_channel_has_linked_channel(ChannelId channel_id) const;
   bool get_channel_join_request(ChannelId channel_id) const;
   bool get_channel_can_be_deleted(ChannelId channel_id) const;
-  ChannelId get_channel_linked_channel_id(ChannelId channel_id, const char *source);
+  ChannelId get_channel_linked_channel_id(ChannelId channel_id, bool force, const char *source);
   int32 get_channel_slow_mode_delay(ChannelId channel_id, const char *source);
   bool get_channel_effective_has_hidden_participants(ChannelId channel_id, const char *source);
   int32 get_channel_my_boost_count(ChannelId channel_id);
