@@ -128,7 +128,7 @@ Result<unique_ptr<DialogFilter>> DialogFilter::create_dialog_filter(Td *td, Dial
                                        false, false, true, false));
   constexpr size_t MAX_TITLE_LENGTH = 12;  // server-side limit for dialog filter title
   title.text = clean_name(title.text, MAX_TITLE_LENGTH);
-  if (title.text.empty()) {
+  if (title.is_empty()) {
     return Status::Error(400, "Name must be non-empty");
   }
   keep_only_custom_emoji(title);
@@ -439,7 +439,7 @@ string DialogFilter::get_default_icon_name(const td_api::chatFolder *filter) {
 
 telegram_api::object_ptr<telegram_api::DialogFilter> DialogFilter::get_input_dialog_filter() const {
   if (is_shareable_) {
-    int32 flags = telegram_api::dialogFilterChatlist::EMOTICON_MASK;
+    int32 flags = 0;
     if (color_id_ != -1) {
       flags |= telegram_api::dialogFilterChatlist::COLOR_MASK;
     }
@@ -448,7 +448,7 @@ telegram_api::object_ptr<telegram_api::DialogFilter> DialogFilter::get_input_dia
         get_input_text_with_entities(nullptr, title_, "dialogFilterChatlist"), emoji_, color_id_,
         InputDialogId::get_input_peers(pinned_dialog_ids_), InputDialogId::get_input_peers(included_dialog_ids_));
   }
-  int32 flags = telegram_api::dialogFilter::EMOTICON_MASK;
+  int32 flags = 0;
   if (color_id_ != -1) {
     flags |= telegram_api::dialogFilter::COLOR_MASK;
   }

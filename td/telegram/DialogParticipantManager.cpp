@@ -105,15 +105,8 @@ class GetChatJoinRequestsQuery final : public Td::ResultHandler {
       r_input_user = make_tl_object<telegram_api::inputUserEmpty>();
     }
 
-    int32 flags = 0;
-    if (!invite_link.empty()) {
-      flags |= telegram_api::messages_getChatInviteImporters::LINK_MASK;
-    }
-    if (!query.empty()) {
-      flags |= telegram_api::messages_getChatInviteImporters::Q_MASK;
-    }
     send_query(G()->net_query_creator().create(telegram_api::messages_getChatInviteImporters(
-        flags, true, false, std::move(input_peer), invite_link, query, offset_date, r_input_user.move_as_ok(), limit)));
+        0, true, false, std::move(input_peer), invite_link, query, offset_date, r_input_user.move_as_ok(), limit)));
   }
 
   void on_result(BufferSlice packet) final {
@@ -241,12 +234,8 @@ class HideAllChatJoinRequestsQuery final : public Td::ResultHandler {
     auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id, AccessRights::Write);
     CHECK(input_peer != nullptr);
 
-    int32 flags = 0;
-    if (!invite_link.empty()) {
-      flags |= telegram_api::messages_hideAllChatJoinRequests::LINK_MASK;
-    }
     send_query(G()->net_query_creator().create(
-        telegram_api::messages_hideAllChatJoinRequests(flags, approve, std::move(input_peer), invite_link)));
+        telegram_api::messages_hideAllChatJoinRequests(0, approve, std::move(input_peer), invite_link)));
   }
 
   void on_result(BufferSlice packet) final {
@@ -490,14 +479,8 @@ class RequestChatJoinWebViewQuery final : public Td::ResultHandler {
   }
 
   void send(int64 query_id, const WebAppOpenParameters &parameters) {
-    int32 flags = 0;
-    auto theme_parameters = parameters.get_input_theme_parameters();
-    if (theme_parameters != nullptr) {
-      flags |= telegram_api::messages_requestChatJoinWebView::THEME_PARAMS_MASK;
-    }
-
     send_query(G()->net_query_creator().create(telegram_api::messages_requestChatJoinWebView(
-        flags, query_id, std::move(theme_parameters), parameters.get_application_name())));
+        0, query_id, parameters.get_input_theme_parameters(), parameters.get_application_name())));
   }
 
   void on_result(BufferSlice packet) final {

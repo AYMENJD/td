@@ -89,12 +89,7 @@ class GetStarsGiftOptionsQuery final : public Td::ResultHandler {
   }
 
   void send(telegram_api::object_ptr<telegram_api::InputUser> input_user) {
-    int32 flags = 0;
-    if (input_user != nullptr) {
-      flags |= telegram_api::payments_getStarsGiftOptions::USER_ID_MASK;
-    }
-    send_query(
-        G()->net_query_creator().create(telegram_api::payments_getStarsGiftOptions(flags, std::move(input_user))));
+    send_query(G()->net_query_creator().create(telegram_api::payments_getStarsGiftOptions(0, std::move(input_user))));
   }
 
   void on_result(BufferSlice packet) final {
@@ -174,10 +169,6 @@ class GetStarsTransactionsQuery final : public Td::ResultHandler {
     if (input_peer == nullptr) {
       return on_error(Status::Error(400, "Have no access to the chat"));
     }
-    int32 flags = 0;
-    if (!subscription_id.empty()) {
-      flags |= telegram_api::payments_getStarsTransactions::SUBSCRIPTION_ID_MASK;
-    }
     bool inbound = false;
     bool outbound = false;
     bool ascending = td_->auth_manager_->is_bot();
@@ -194,7 +185,7 @@ class GetStarsTransactionsQuery final : public Td::ResultHandler {
       }
     }
     send_query(G()->net_query_creator().create(telegram_api::payments_getStarsTransactions(
-        flags, inbound, outbound, ascending, false, subscription_id, std::move(input_peer), offset, limit)));
+        0, inbound, outbound, ascending, false, subscription_id, std::move(input_peer), offset, limit)));
   }
 
   void send(DialogId dialog_id, const string &transaction_id, bool is_refund) {

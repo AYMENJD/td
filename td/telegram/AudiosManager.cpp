@@ -240,8 +240,7 @@ SecretInputMedia AudiosManager::get_secret_input_media(
     attributes.push_back(secret_api::make_object<secret_api::documentAttributeFilename>(audio->file_name));
   }
   attributes.push_back(secret_api::make_object<secret_api::documentAttributeAudio>(
-      secret_api::documentAttributeAudio::TITLE_MASK | secret_api::documentAttributeAudio::PERFORMER_MASK, false,
-      audio->duration, audio->title, audio->performer, BufferSlice()));
+      0, false, audio->duration, audio->title, audio->performer, BufferSlice()));
 
   return {std::move(input_file),
           std::move(thumbnail),
@@ -276,8 +275,7 @@ tl_object_ptr<telegram_api::InputMedia> AudiosManager::get_input_media(
 
     vector<telegram_api::object_ptr<telegram_api::DocumentAttribute>> attributes;
     attributes.push_back(telegram_api::make_object<telegram_api::documentAttributeAudio>(
-        telegram_api::documentAttributeAudio::TITLE_MASK | telegram_api::documentAttributeAudio::PERFORMER_MASK, false,
-        audio->duration, audio->title, audio->performer, BufferSlice()));
+        0, false, audio->duration, audio->title, audio->performer, BufferSlice()));
     if (!audio->file_name.empty()) {
       attributes.push_back(telegram_api::make_object<telegram_api::documentAttributeFilename>(audio->file_name));
     }
@@ -285,12 +283,8 @@ tl_object_ptr<telegram_api::InputMedia> AudiosManager::get_input_media(
     if (!begins_with(mime_type, "audio/")) {
       mime_type = "audio/mpeg";
     }
-    int32 flags = 0;
-    if (input_thumbnail != nullptr) {
-      flags |= telegram_api::inputMediaUploadedDocument::THUMB_MASK;
-    }
     return telegram_api::make_object<telegram_api::inputMediaUploadedDocument>(
-        flags, false, false, false, std::move(input_file), std::move(input_thumbnail), mime_type, std::move(attributes),
+        0, false, false, false, std::move(input_file), std::move(input_thumbnail), mime_type, std::move(attributes),
         vector<telegram_api::object_ptr<telegram_api::InputDocument>>(), nullptr, 0, 0);
   } else {
     CHECK(main_remote_location == nullptr);

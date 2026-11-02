@@ -24,11 +24,11 @@
 #include "td/utils/Status.h"
 
 #include <functional>
+#include <unordered_map>
 
 namespace td {
 
 class Dependencies;
-struct GetWebPageBlockObjectContext;
 class RichText;
 class Td;
 
@@ -45,6 +45,18 @@ struct CloneWebPageBlockContext {
   DialogId dialog_id_;
   MessageContentDupType dup_type_ = MessageContentDupType::Send;
   bool is_via_bot_ = false;
+};
+
+struct GetWebPageBlockObjectContext {
+  Td *td_ = nullptr;
+  Slice base_url_;
+  string real_url_host_;
+  string real_url_rhash_;
+  bool skip_bot_commands_ = false;
+
+  bool is_first_pass_ = true;
+  bool has_anchor_urls_ = false;
+  std::unordered_map<Slice, const RichText *, SliceHash> anchors_;  // anchor -> text
 };
 
 class WebPageBlock {
@@ -128,10 +140,20 @@ class WebPageBlock {
   virtual void append_rich_message_media(vector<RichMessageMedia> &media) const {
   }
 
+  // removes nested media blocks without files; returns true, if the block itself has no files and must be removed
+  virtual bool remove_empty_media_blocks() {
+    return false;
+  }
+
   virtual void add_dependencies(Dependencies &dependencies) const = 0;
 
   virtual void for_each_rich_text(bool recurse_text,
                                   const std::function<void(const RichText &text)> &callback) const = 0;
+
+  // calls callback for each text, which can be quoted, in the order of their appearance
+  virtual void for_each_quote_text(const std::function<void(const RichText &text)> &callback) const {
+    for_each_rich_text(false, callback);
+  }
 
   void for_each_text(const std::function<void(Slice text)> &callback) const;
 
@@ -191,7 +213,12 @@ vector<unique_ptr<WebPageBlock>> clone_web_page_blocks(const vector<unique_ptr<W
 vector<telegram_api::object_ptr<telegram_api::PageBlock>> get_input_page_blocks(
     const vector<unique_ptr<WebPageBlock>> &page_blocks, GetInputPageBlockContext &context);
 
+void for_each_web_page_blocks_quote_text(const vector<unique_ptr<WebPageBlock>> &page_blocks,
+                                         const std::function<void(const RichText &text)> &callback);
+
 vector<RichMessageMedia> get_page_blocks_rich_message_media(const vector<unique_ptr<WebPageBlock>> &page_blocks);
+
+void remove_empty_media_page_blocks(vector<unique_ptr<WebPageBlock>> &page_blocks);
 
 vector<td_api::object_ptr<td_api::PageBlock>> get_page_blocks_object(
     const vector<unique_ptr<WebPageBlock>> &page_blocks, Td *td, Slice base_url, Slice real_url,
