@@ -932,7 +932,7 @@ class LeaveGroupCallPresentationQuery final : public Td::ResultHandler {
   }
 
   void on_result(BufferSlice packet) final {
-    auto result_ptr = fetch_result<telegram_api::phone_editGroupCallTitle>(packet);
+    auto result_ptr = fetch_result<telegram_api::phone_leaveGroupCallPresentation>(packet);
     if (result_ptr.is_error()) {
       return on_error(result_ptr.move_as_error());
     }
@@ -3685,7 +3685,7 @@ void GroupCallManager::on_group_call_message_sending_failed(InputGroupCallId inp
                      group_call->group_call_id.get(), message_id,
                      td_api::make_object<td_api::error>(status.code(), status.message().str())));
   }
-  if (group_call->is_live_story && status.code() == 400 && status.message() == CSlice("SEND_AS_PEER_INVALID")) {
+  if (group_call->is_live_story && status.code() == 400 && status.message() == Slice("SEND_AS_PEER_INVALID")) {
     reload_group_call(input_group_call_id, Auto());
   }
 }
@@ -8048,13 +8048,7 @@ bool GroupCallManager::set_group_call_unmuted_video_count(GroupCall *group_call,
 
 void GroupCallManager::update_group_call_dialog(const GroupCall *group_call, const char *source, bool force) {
   CHECK(group_call != nullptr);
-  if (!group_call->dialog_id.is_valid()) {
-    return;
-  }
-  if (group_call->is_live_story) {
-    if (group_call->is_active) {
-      dialog_live_stories_[group_call->dialog_id] = get_input_group_call_id(group_call->group_call_id).ok();
-    }
+  if (!group_call->dialog_id.is_valid() || group_call->is_live_story) {
     return;
   }
 

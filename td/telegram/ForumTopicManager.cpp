@@ -763,6 +763,19 @@ void ForumTopicManager::on_update_pinned_forum_topics(DialogId dialog_id, vector
   });
 }
 
+void ForumTopicManager::on_update_forum_topic_edited(DialogId dialog_id, ForumTopicId forum_topic_id,
+                                                     const ForumTopicEditedData &edited_data) {
+  if (!td_->dialog_manager_->have_dialog_force(dialog_id, "on_update_forum_topic_edited")) {
+    return;
+  }
+  if (!can_be_forum(dialog_id) || can_be_forum_topic_id(forum_topic_id).is_error()) {
+    LOG(ERROR) << "Receive edited " << forum_topic_id << " in " << dialog_id;
+    return;
+  }
+
+  on_forum_topic_edited(dialog_id, forum_topic_id, edited_data);
+}
+
 Status ForumTopicManager::set_forum_topic_notification_settings(
     DialogId dialog_id, ForumTopicId forum_topic_id,
     td_api::object_ptr<td_api::chatNotificationSettings> &&notification_settings) {
@@ -872,20 +885,30 @@ void ForumTopicManager::on_get_forum_topic(DialogId dialog_id, ForumTopicId expe
 
 void ForumTopicManager::get_forum_topic_link(DialogId dialog_id, ForumTopicId forum_topic_id,
                                              Promise<td_api::object_ptr<td_api::messageLink>> &&promise) {
-  TRY_STATUS_PROMISE(promise, is_forum(dialog_id));
+  TRY_STATUS_PROMISE(promise, is_forum(dialog_id, true));
   TRY_STATUS_PROMISE(promise, can_be_forum_topic_id(forum_topic_id));
-  auto channel_id = dialog_id.get_channel_id();
 
   SliceBuilder sb;
   sb << LinkManager::get_t_me_url();
 
   bool is_public = false;
-  auto dialog_username = td_->chat_manager_->get_channel_first_username(channel_id);
-  if (!dialog_username.empty()) {
-    sb << dialog_username;
-    is_public = true;
+  if (dialog_id.get_type() == DialogType::User) {
+    // the topic exists only in the chat between the user and the bot, so the link isn't public
+    auto bot_user_id = td_->auth_manager_->is_bot() ? td_->user_manager_->get_my_id() : dialog_id.get_user_id();
+    auto bot_username = td_->user_manager_->get_user_first_username(bot_user_id);
+    if (bot_username.empty()) {
+      return promise.set_error(400, "The bot has no username");
+    }
+    sb << bot_username;
   } else {
-    sb << "c/" << channel_id.get();
+    auto channel_id = dialog_id.get_channel_id();
+    auto dialog_username = td_->chat_manager_->get_channel_first_username(channel_id);
+    if (!dialog_username.empty()) {
+      sb << dialog_username;
+      is_public = true;
+    } else {
+      sb << "c/" << channel_id.get();
+    }
   }
   sb << '/' << forum_topic_id.get();
 

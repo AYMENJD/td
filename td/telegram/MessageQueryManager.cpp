@@ -703,7 +703,7 @@ class SearchPublicPostsQuery final : public Td::ResultHandler {
     auto input_peer = DialogManager::get_input_peer_force(offset.dialog_id_);
     CHECK(input_peer != nullptr);
 
-    int32 flags = telegram_api::channels_searchPosts::QUERY_MASK;
+    int32 flags = 0;
     if (star_count > 0) {
       td_->star_manager_->add_pending_owned_star_count(-star_count, false);
       flags |= telegram_api::channels_searchPosts::ALLOW_PAID_STARS_MASK;
@@ -922,6 +922,8 @@ class GetMessagePositionQuery final : public Td::ResultHandler {
   }
 
   void on_result(BufferSlice packet) final {
+    static_assert(
+        std::is_same<telegram_api::messages_getHistory::ReturnType, telegram_api::messages_search::ReturnType>::value);
     static_assert(std::is_same<telegram_api::messages_getSavedHistory::ReturnType,
                                telegram_api::messages_search::ReturnType>::value);
     auto result_ptr = fetch_result<telegram_api::messages_search>(packet);
@@ -1417,6 +1419,7 @@ class BlockFromRepliesQuery final : public Td::ResultHandler {
 
 class EditEphemeralMessageQuery final : public Td::ResultHandler {
   Promise<Unit> promise_;
+  DialogId dialog_id_;
   MessageContentUploadId upload_id_;
 
  public:
@@ -1426,9 +1429,10 @@ class EditEphemeralMessageQuery final : public Td::ResultHandler {
   void send(DialogId dialog_id, UserId receiver_user_id, EphemeralMessageId ephemeral_message_id, bool force_edit_text,
             const FormattedText *text, bool disable_web_page_preview, MessageContentUploadId upload_id,
             InputMedia &&input_media, bool invert_media, const unique_ptr<ReplyMarkup> &reply_markup) {
+    dialog_id_ = dialog_id;
     upload_id_ = upload_id;
     int32 flags = 0;
-    auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id, AccessRights::Write);
+    auto input_peer = MessageQueryManager::get_ephemeral_message_input_peer(td_, dialog_id, AccessRights::Write);
     if (input_peer == nullptr) {
       return on_error(Status::Error(400, "Can't access the chat"));
     }
@@ -1473,7 +1477,8 @@ class EditEphemeralMessageQuery final : public Td::ResultHandler {
     if (upload_id_ != MessageContentUploadId()) {
       td_->message_query_manager_->process_send_message_content_error(upload_id_, std::move(status));
     } else {
-      promise_.set_error(std::move(status));
+      promise_.set_error(MessageQueryManager::process_send_message_fail_error(
+          std::move(status), dialog_id_, td_->auth_manager_->is_bot(), true, MessageContentType::None));
     }
   }
 };
@@ -1492,7 +1497,7 @@ class EditCallbackQueryMessageQuery final : public Td::ResultHandler {
     td_->message_query_manager_->on_start_sending_message_content(upload_id_, input_media);
     send_query(G()->net_query_creator().create(telegram_api::ephemeral_sendMessage(
         flags, invert_media, false, anchor, noforwards, nullptr,
-        telegram_api::make_object<telegram_api::inputUserSelf>(), callback_query_id,
+        telegram_api::make_object<telegram_api::inputUserEmpty>(), callback_query_id,
         text == nullptr ? string() : text->text, std::move(entities), std::move(input_media.media_),
         std::move(input_reply_markup), std::move(input_media.rich_message_), Random::secure_int64(), nullptr)));
   }
@@ -1839,6 +1844,7 @@ class DeleteScheduledMessagesQuery final : public Td::ResultHandler {
 class DeleteEphemeralMessageQuery final : public Td::ResultHandler {
   Promise<Unit> promise_;
   DialogId dialog_id_;
+  EphemeralMessageId ephemeral_message_id_;
 
  public:
   explicit DeleteEphemeralMessageQuery(Promise<Unit> &&promise) : promise_(std::move(promise)) {
@@ -1846,8 +1852,9 @@ class DeleteEphemeralMessageQuery final : public Td::ResultHandler {
 
   void send(DialogId dialog_id, DialogId receiver_dialog_id, EphemeralMessageId ephemeral_message_id) {
     dialog_id_ = dialog_id;
+    ephemeral_message_id_ = ephemeral_message_id;
 
-    auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id, AccessRights::Read);
+    auto input_peer = MessageQueryManager::get_ephemeral_message_input_peer(td_, dialog_id, AccessRights::Read);
     if (input_peer == nullptr || receiver_dialog_id.get_type() != DialogType::User) {
       return on_error(Status::Error(400, "Can't access the chat"));
     }
@@ -1869,8 +1876,9 @@ class DeleteEphemeralMessageQuery final : public Td::ResultHandler {
 
   void on_error(Status status) final {
     if (!td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "DeleteEphemeralMessageQuery")) {
-      LOG(ERROR) << "Receive error for delete ephemeral messages: " << status;
+      LOG(INFO) << "Receive error for delete ephemeral messages: " << status;
     }
+    td_->messages_manager_->on_failed_ephemeral_message_deletion(dialog_id_, ephemeral_message_id_);
     promise_.set_error(std::move(status));
   }
 };
@@ -1979,7 +1987,9 @@ class DeleteParticipantReactionQuery final : public Td::ResultHandler {
       return on_error(result_ptr.move_as_error());
     }
 
-    promise_.set_value(Unit());
+    auto ptr = result_ptr.move_as_ok();
+    LOG(INFO) << "Receive result for DeleteParticipantReactionQuery: " << to_string(ptr);
+    td_->updates_manager_->on_get_updates(std::move(ptr), std::move(promise_));
   }
 
   void on_error(Status status) final {
@@ -4087,8 +4097,10 @@ void MessageQueryManager::edit_ephemeral_message(
   auto is_bot = td_->auth_manager_->is_bot();
   CHECK(is_bot);
 
-  TRY_STATUS_PROMISE(promise, td_->dialog_manager_->check_dialog_access(dialog_id, false, AccessRights::Write,
-                                                                        "edit_ephemeral_message"));
+  if (!td_->messages_manager_->is_bot_ephemeral_message_channel(dialog_id)) {
+    TRY_STATUS_PROMISE(promise, td_->dialog_manager_->check_dialog_access(dialog_id, false, AccessRights::Write,
+                                                                          "edit_ephemeral_message"));
+  }
   TRY_RESULT_PROMISE(promise, new_reply_markup, get_inline_reply_markup(std::move(reply_markup), is_bot, true));
   if (input_message_content == nullptr) {
     td_->create_handler<EditEphemeralMessageQuery>(std::move(promise))
@@ -4111,15 +4123,19 @@ void MessageQueryManager::edit_ephemeral_message(
                      get_input_message_content(dialog_id, std::move(input_message_content), td_, true));
   auto content_type = content.content->get_type();
   if (!is_editable_media_message_content(content_type) && content_type != MessageContentType::RichText) {
-    return promise.set_error(400, "Unsupported input message content type");
+    return promise.set_error(400, "Unallowed message content specified");
   }
   if (!content.ttl.is_empty()) {
     return promise.set_error(400, "Can't enable self-destruction for media");
   }
 
+  // files can't be uploaded to inaccessible chats, so upload them for the bot itself
+  auto upload_dialog_id = td_->messages_manager_->is_bot_ephemeral_message_channel(dialog_id)
+                              ? td_->dialog_manager_->get_my_dialog_id()
+                              : dialog_id;
   auto upload_id =
-      create_upload_message_content_query(dialog_id, content.content.get(), MessageSelfDestructType(), content.emoji,
-                                          false, false, upload_ephemeral_message_content_callback_);
+      create_upload_message_content_query(upload_dialog_id, content.content.get(), MessageSelfDestructType(),
+                                          content.emoji, false, false, upload_ephemeral_message_content_callback_);
   auto &query = edit_ephemeral_message_queries_[upload_id];
   query.dialog_id_ = dialog_id;
   query.receiver_user_id_ = receiver_user_id;
@@ -4139,8 +4155,10 @@ void MessageQueryManager::edit_ephemeral_message_caption(DialogId dialog_id, Use
   auto is_bot = td_->auth_manager_->is_bot();
   CHECK(is_bot);
 
-  TRY_STATUS_PROMISE(promise, td_->dialog_manager_->check_dialog_access(dialog_id, false, AccessRights::Write,
-                                                                        "edit_ephemeral_message_caption"));
+  if (!td_->messages_manager_->is_bot_ephemeral_message_channel(dialog_id)) {
+    TRY_STATUS_PROMISE(promise, td_->dialog_manager_->check_dialog_access(dialog_id, false, AccessRights::Write,
+                                                                          "edit_ephemeral_message_caption"));
+  }
   TRY_RESULT_PROMISE(promise, new_reply_markup, get_inline_reply_markup(std::move(reply_markup), is_bot, true));
   TRY_RESULT_PROMISE(promise, caption,
                      get_formatted_text(td_, dialog_id, std::move(input_caption), is_bot, true, false, false));
@@ -4159,10 +4177,8 @@ void MessageQueryManager::edit_callback_query_message(
   TRY_RESULT_PROMISE(promise, new_reply_markup, get_inline_reply_markup(std::move(reply_markup), is_bot, true));
   TRY_RESULT_PROMISE(promise, content,
                      get_input_message_content(DialogId(), std::move(input_message_content), td_, true));
-  auto content_type = content.content->get_type();
-  if (!is_editable_media_message_content(content_type) && content_type != MessageContentType::RichText &&
-      content_type != MessageContentType::Text) {
-    return promise.set_error(400, "Unsupported input message content type");
+  if (!is_allowed_ephemeral_message_content(content.content->get_type())) {
+    return promise.set_error(400, "Unallowed message content specified");
   }
   if (!content.ttl.is_empty()) {
     return promise.set_error(400, "Can't enable self-destruction for media");
@@ -4190,6 +4206,10 @@ void MessageQueryManager::cancel_edit_ephemeral_message(MessageContentUploadId u
     return;
   }
   auto promise = std::move(it->second.promise_);
+  if (status.is_error()) {
+    status = process_send_message_fail_error(std::move(status), it->second.dialog_id_, td_->auth_manager_->is_bot(),
+                                             true, it->second.content_->get_type());
+  }
   edit_ephemeral_message_queries_.erase(upload_id);
 
   cancel_upload_message_content(upload_id);
@@ -4198,6 +4218,88 @@ void MessageQueryManager::cancel_edit_ephemeral_message(MessageContentUploadId u
   } else {
     promise.set_value(Unit());
   }
+}
+
+telegram_api::object_ptr<telegram_api::InputPeer> MessageQueryManager::get_ephemeral_message_input_peer(
+    Td *td, DialogId dialog_id, AccessRights access_rights) {
+  if (td->messages_manager_->is_bot_ephemeral_message_channel(dialog_id)) {
+    // the chat is inaccessible, but ephemeral messages can be edited and deleted there
+    return telegram_api::make_object<telegram_api::inputPeerChannel>(dialog_id.get_channel_id().get(), 0);
+  }
+  return td->dialog_manager_->get_input_peer(dialog_id, access_rights);
+}
+
+Status MessageQueryManager::process_send_message_fail_error(Status &&error, DialogId dialog_id, bool is_bot,
+                                                            bool is_ephemeral, MessageContentType content_type) {
+  int32 error_code = error.code();
+  string error_message = error.message().str();
+  switch (error_code) {
+    case 420:
+      error_code = 429;
+      LOG(ERROR) << "Receive error 420: " << error_message;
+      break;
+    case 429:
+      if (!begins_with(error_message, "Too Many Requests: retry after ")) {
+        LOG(ERROR) << "Wrong error message: " << error_message;
+      }
+      break;
+    case 400:
+      if (error_message == "MESSAGE_TOO_LONG") {
+        error_message = "Message is too long";
+      } else if (error_message == "MEDIA_CAPTION_TOO_LONG") {
+        error_message = "Message caption is too long";
+      } else if (error_message == "INPUT_USER_DEACTIVATED") {
+        error_code = 403;
+        error_message = "User is deactivated";
+      } else if (error_message == "USER_IS_BOT") {
+        if (is_bot && (dialog_id.get_type() == DialogType::User || dialog_id.get_type() == DialogType::SecretChat)) {
+          error_code = 403;
+          error_message = "The bot can't send messages to the bot";
+        }
+      } else if (error_message == "PEER_ID_INVALID") {
+        error_code = 403;
+        if (is_bot && !is_ephemeral &&
+            (dialog_id.get_type() == DialogType::User || dialog_id.get_type() == DialogType::SecretChat)) {
+          error_message = "Bot can't initiate conversation with a user";
+        }
+      } else if (error_message == "REPLY_TO_MONOFORUM_PEER_INVALID") {
+        error_message = "Wrong direct messages topic identifier specified";
+      } else if (error_message == "CHAT_FORWARDS_RESTRICTED") {
+        error_message = "Message has protected content and can't be forwarded";
+      } else if (error_message == "MEDIA_EMPTY") {
+        if (content_type == MessageContentType::Game) {
+          error_message = "Wrong game short name specified";
+        } else if (content_type == MessageContentType::Invoice) {
+          error_message = "Wrong invoice information specified";
+        } else if (content_type == MessageContentType::Poll) {
+          error_message = "Wrong poll data specified";
+        } else if (content_type == MessageContentType::Contact) {
+          error_message = "Wrong phone number specified";
+        } else if (content_type == MessageContentType::Story) {
+          error_message = "Wrong story file specified";
+        } else {
+          error_message = "Wrong file identifier/HTTP URL specified";
+        }
+      } else if (error_message == "EXTENDED_MEDIA_INVALID") {
+        error_message = "Invalid paid media file specified";
+      } else if (error_message == "PHOTO_EXT_INVALID") {
+        error_message = "Photo has unsupported extension. Use one of .jpg, .jpeg, .gif, .png, .tif or .bmp";
+      } else {
+        return std::move(error);
+      }
+      break;
+    case 403:
+      if (error_message != "CHANNEL_PUBLIC_GROUP_NA" && error_message != "USER_IS_BLOCKED" &&
+          error_message != "USER_BOT_INVALID" && error_message != "USER_DELETED") {
+        error_code = 400;
+      } else {
+        return std::move(error);
+      }
+      break;
+    default:
+      return std::move(error);
+  }
+  return Status::Error(error_code, error_message);
 }
 
 void MessageQueryManager::delete_dialog_messages_by_sender(DialogId dialog_id, DialogId sender_dialog_id,
