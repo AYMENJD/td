@@ -191,6 +191,13 @@ class MessageQueryManager final : public Actor {
                                vector<telegram_api::object_ptr<telegram_api::Message>> &&messages,
                                Promise<td_api::object_ptr<td_api::messages>> &&promise);
 
+  void get_dialog_message_count(DialogId dialog_id, const td_api::object_ptr<td_api::MessageTopic> &topic_id,
+                                MessageSearchFilter filter, bool return_local, Promise<int32> &&promise);
+
+  void get_dialog_message_counts(DialogId dialog_id, const td_api::object_ptr<td_api::MessageTopic> &topic_id,
+                                 vector<MessageSearchFilter> filters, bool return_local,
+                                 Promise<vector<int32>> &&promise);
+
   void get_dialog_message_position_from_server(DialogId dialog_id, MessageTopic message_topic,
                                                MessageSearchFilter filter, MessageId message_id,
                                                Promise<int32> &&promise);
@@ -260,9 +267,12 @@ class MessageQueryManager final : public Actor {
   void edit_callback_query_message(int64 callback_query_id, bool anchor, bool noforwards,
                                    td_api::object_ptr<td_api::ReplyMarkup> &&reply_markup,
                                    td_api::object_ptr<td_api::InputMessageContent> &&input_message_content,
-                                   Promise<Unit> &&promise);
+                                   Promise<td_api::object_ptr<td_api::message>> &&promise);
 
   void cancel_edit_ephemeral_message(MessageContentUploadId upload_id, Status status);
+
+  void on_edit_callback_query_message(MessageContentUploadId upload_id, DialogId dialog_id,
+                                      EphemeralMessageId ephemeral_message_id);
 
   static telegram_api::object_ptr<telegram_api::InputPeer> get_ephemeral_message_input_peer(Td *td, DialogId dialog_id,
                                                                                             AccessRights access_rights);
@@ -327,6 +337,10 @@ class MessageQueryManager final : public Actor {
   void unpin_all_topic_messages_on_server(DialogId dialog_id, ForumTopicId forum_topic_id,
                                           SavedMessagesTopicId saved_messages_topic_id, uint64 log_event_id,
                                           Promise<Unit> &&promise);
+
+  void set_dialog_text_composition_parameters(
+      DialogId dialog_id, td_api::object_ptr<td_api::textCompositionParameters> &&text_composition_parameters,
+      Promise<Unit> &&promise);
 
   void on_update_emoji_game_info(telegram_api::object_ptr<telegram_api::messages_EmojiGameInfo> &&game_info);
 
@@ -430,6 +444,15 @@ class MessageQueryManager final : public Actor {
 
   void on_reload_message_fact_checks(DialogId dialog_id, const vector<MessageId> &message_ids,
                                      Result<vector<telegram_api::object_ptr<telegram_api::factCheck>>> r_fact_checks);
+
+  int32 get_dialog_message_count_local(DialogId dialog_id, const MessageTopic &message_topic,
+                                       MessageSearchFilter filter) const;
+
+  void get_topic_unread_message_counts(DialogId dialog_id, const MessageTopic &message_topic,
+                                       vector<MessageSearchFilter> filters, Promise<vector<int32>> &&promise);
+
+  void get_dialog_message_counts_from_server(DialogId dialog_id, MessageTopic message_topic,
+                                             vector<MessageSearchFilter> filters, Promise<vector<int32>> &&promise);
 
   void on_get_message_viewers(DialogId dialog_id, MessageViewers message_viewers, bool is_recursive,
                               Promise<td_api::object_ptr<td_api::messageViewers>> &&promise);
@@ -584,6 +607,7 @@ class MessageQueryManager final : public Actor {
     int64 callback_query_id_ = 0;
 
     Promise<Unit> promise_;
+    Promise<td_api::object_ptr<td_api::message>> message_promise_;
   };
   FlatHashMap<MessageContentUploadId, EditEphemeralMessageRequest, MessageContentUploadIdHash>
       edit_ephemeral_message_queries_;

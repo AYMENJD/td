@@ -7,6 +7,7 @@
 #include "td/telegram/MessageQueryManager.h"
 
 #include "td/telegram/AccessRights.h"
+#include "td/telegram/AiComposeStyle.h"
 #include "td/telegram/AuthManager.h"
 #include "td/telegram/ChannelParticipantFilter.h"
 #include "td/telegram/ChatManager.h"
@@ -44,6 +45,7 @@
 #include "td/telegram/ReplyMarkup.h"
 #include "td/telegram/RequestedDialogType.h"
 #include "td/telegram/RichMessage.h"
+#include "td/telegram/SavedMessagesManager.h"
 #include "td/telegram/SearchPostsFlood.h"
 #include "td/telegram/SecretChatsManager.h"
 #include "td/telegram/ServerMessageId.h"
@@ -875,6 +877,86 @@ class GetRecentLocationsQuery final : public Td::ResultHandler {
   }
 };
 
+class GetSearchCountersQuery final : public Td::ResultHandler {
+  Promise<vector<int32>> promise_;
+  DialogId dialog_id_;
+  MessageTopic message_topic_;
+  vector<MessageSearchFilter> filters_;
+
+ public:
+  explicit GetSearchCountersQuery(Promise<vector<int32>> &&promise) : promise_(std::move(promise)) {
+  }
+
+  void send(DialogId dialog_id, MessageTopic message_topic, vector<MessageSearchFilter> filters) {
+    auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id, AccessRights::Read);
+    if (input_peer == nullptr) {
+      return promise_.set_error(400, "Can't access the chat");
+    }
+
+    dialog_id_ = dialog_id;
+    message_topic_ = message_topic;
+    filters_ = std::move(filters);
+
+    auto input_filters = transform(filters_, [](MessageSearchFilter filter) {
+      CHECK(filter != MessageSearchFilter::Empty);
+      CHECK(filter != MessageSearchFilter::UnreadMention);
+      CHECK(filter != MessageSearchFilter::FailedToSend);
+      CHECK(filter != MessageSearchFilter::UnreadReaction);
+      CHECK(filter != MessageSearchFilter::UnreadPollVote);
+      return get_input_messages_filter(filter);
+    });
+
+    auto saved_input_peer = message_topic.get_saved_input_peer(td_);
+    auto top_msg_id = message_topic.get_input_top_msg_id();
+    int32 flags = 0;
+    if (top_msg_id != 0) {
+      flags |= telegram_api::messages_getSearchCounters::TOP_MSG_ID_MASK;
+    }
+    send_query(G()->net_query_creator().create(telegram_api::messages_getSearchCounters(
+        flags, std::move(input_peer), std::move(saved_input_peer), top_msg_id, std::move(input_filters))));
+  }
+
+  void on_result(BufferSlice packet) final {
+    auto result_ptr = fetch_result<telegram_api::messages_getSearchCounters>(packet);
+    if (result_ptr.is_error()) {
+      return on_error(result_ptr.move_as_error());
+    }
+
+    auto result = result_ptr.move_as_ok();
+    bool is_valid = result.size() == filters_.size();
+    for (size_t i = 0; is_valid && i < result.size(); i++) {
+      is_valid = result[i]->filter_->get_id() == get_input_messages_filter(filters_[i])->get_id();
+    }
+    if (!is_valid) {
+      LOG(ERROR) << "Receive unexpected response for get message count in " << dialog_id_ << " with filters "
+                 << filters_ << ": " << to_string(result);
+      return on_error(Status::Error(500, "Receive wrong response"));
+    }
+
+    vector<int32> counts;
+    for (size_t i = 0; i < result.size(); i++) {
+      auto filter = filters_[i];
+      auto total_count = result[i]->count_;
+      LOG(INFO) << "Receive " << total_count << " message count in " << dialog_id_ << " with filter " << filter;
+      if (total_count < 0) {
+        LOG(ERROR) << "Receive total message count = " << total_count << " in " << dialog_id_ << " with "
+                   << message_topic_ << " and filter " << filter;
+        total_count = 0;
+      }
+      if (message_topic_.is_empty()) {
+        td_->messages_manager_->on_get_dialog_message_count(dialog_id_, filter, total_count);
+      }
+      counts.push_back(total_count);
+    }
+    promise_.set_value(std::move(counts));
+  }
+
+  void on_error(Status status) final {
+    td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "GetSearchCountersQuery");
+    promise_.set_error(std::move(status));
+  }
+};
+
 class GetMessagePositionQuery final : public Td::ResultHandler {
   Promise<int32> promise_;
   DialogId dialog_id_;
@@ -1510,9 +1592,20 @@ class EditCallbackQueryMessageQuery final : public Td::ResultHandler {
 
     auto ptr = result_ptr.move_as_ok();
     LOG(INFO) << "Receive result for EditCallbackQueryMessageQuery: " << to_string(ptr);
-    auto promise = PromiseCreator::lambda([actor_id = G()->message_query_manager(), upload_id = upload_id_](Unit) {
-      send_closure(actor_id, &MessageQueryManager::cancel_edit_ephemeral_message, upload_id, Status::OK());
-    });
+    DialogId dialog_id;
+    EphemeralMessageId ephemeral_message_id;
+    auto sent_messages = UpdatesManager::get_new_ephemeral_messages(ptr.get());
+    if (sent_messages.size() != 1u || sent_messages[0]->peer_id_ == nullptr) {
+      LOG(ERROR) << "Receive wrong result for EditCallbackQueryMessageQuery: " << oneline(to_string(ptr));
+    } else {
+      dialog_id = DialogId(sent_messages[0]->peer_id_);
+      ephemeral_message_id = EphemeralMessageId(sent_messages[0]->id_);
+    }
+    auto promise = PromiseCreator::lambda(
+        [actor_id = G()->message_query_manager(), upload_id = upload_id_, dialog_id, ephemeral_message_id](Unit) {
+          send_closure(actor_id, &MessageQueryManager::on_edit_callback_query_message, upload_id, dialog_id,
+                       ephemeral_message_id);
+        });
     td_->updates_manager_->on_get_updates(std::move(ptr), std::move(promise));
   }
 
@@ -2294,6 +2387,48 @@ class UnpinAllMessagesQuery final : public Td::ResultHandler {
   }
 };
 
+class SetChatStyleQuery final : public Td::ResultHandler {
+  Promise<Unit> promise_;
+  DialogId dialog_id_;
+  unique_ptr<AiComposeStyle> ai_compose_style_;
+
+ public:
+  explicit SetChatStyleQuery(Promise<Unit> &&promise) : promise_(std::move(promise)) {
+  }
+
+  void send(DialogId dialog_id, unique_ptr<AiComposeStyle> &&ai_compose_style) {
+    dialog_id_ = dialog_id;
+    ai_compose_style_ = std::move(ai_compose_style);
+    auto input_peer = td_->dialog_manager_->get_input_peer(dialog_id, AccessRights::Read);
+    if (input_peer == nullptr) {
+      return on_error(Status::Error(400, "Can't access the chat"));
+    }
+    telegram_api::object_ptr<telegram_api::inputAiComposeStyle> input_style;
+    if (ai_compose_style_ != nullptr) {
+      input_style = ai_compose_style_->get_input_ai_compose_style();
+    }
+    send_query(G()->net_query_creator().create(
+        telegram_api::aicompose_setChatStyle(0, std::move(input_peer), std::move(input_style))));
+  }
+
+  void on_result(BufferSlice packet) final {
+    auto result_ptr = fetch_result<telegram_api::aicompose_setChatStyle>(packet);
+    if (result_ptr.is_error()) {
+      return on_error(result_ptr.move_as_error());
+    }
+
+    bool result = result_ptr.ok();
+    LOG(INFO) << "Receive result for SetChatStyleQuery: " << result;
+    td_->messages_manager_->on_update_dialog_ai_compose_style(dialog_id_, std::move(ai_compose_style_));
+    promise_.set_value(Unit());
+  }
+
+  void on_error(Status status) final {
+    td_->dialog_manager_->on_get_dialog_error(dialog_id_, status, "SetChatStyleQuery");
+    promise_.set_error(std::move(status));
+  }
+};
+
 class MessageQueryManager::UploadCoverCallback final : public FileManager::UploadCallback {
  public:
   void on_upload_ok(FileUploadId file_upload_id, telegram_api::object_ptr<telegram_api::InputFile> input_file) final {
@@ -2647,6 +2782,17 @@ MessageContentUploadId MessageQueryManager::create_upload_message_content_query(
 void MessageQueryManager::start_upload_message_content(MessageContentUploadId upload_id,
                                                        bool after_file_reference_error) {
   LOG(INFO) << "Start to upload message content as " << upload_id;
+  auto it = upload_message_content_queries_.find(upload_id);
+  if (it == upload_message_content_queries_.end()) {
+    return;  // the upload was canceled
+  }
+  auto &query = it->second;
+  if (after_file_reference_error) {
+    CHECK(query.is_started_);
+  } else {
+    CHECK(!query.is_started_);
+    query.is_started_ = true;
+  }
   do_upload_message_content(upload_id, -1, after_file_reference_error ? vector<int>{-1} : vector<int>(), Unit());
 }
 
@@ -2758,12 +2904,7 @@ void MessageQueryManager::do_upload_message_content(MessageContentUploadId uploa
     return;  // the upload was canceled
   }
   auto &query = it->second;
-  if (bad_parts.empty()) {
-    CHECK(!query.is_started_);
-    query.is_started_ = true;
-  } else {
-    CHECK(query.is_started_);
-  }
+  CHECK(query.is_started_);
   const auto *content = query.content_.get();
   CHECK(content != nullptr);
   auto content_type = content->get_type();
@@ -3086,19 +3227,11 @@ void MessageQueryManager::on_upload_message_media_success(
 
 void MessageQueryManager::on_upload_message_media_file_error(MessageContentUploadId upload_id, int32 media_pos,
                                                              vector<int> &&bad_parts) {
-  auto it = upload_message_content_queries_.find(upload_id);
-  if (it == upload_message_content_queries_.end()) {
-    return;  // the upload was canceled
-  }
   do_upload_message_content(upload_id, media_pos, std::move(bad_parts), Unit());
 }
 
 void MessageQueryManager::on_upload_message_media_fail(MessageContentUploadId upload_id, int32 media_pos,
                                                        Status error) {
-  auto it = upload_message_content_queries_.find(upload_id);
-  if (it == upload_message_content_queries_.end()) {
-    return;  // the upload was canceled
-  }
   send_closure_later(actor_id(this), &MessageQueryManager::on_upload_message_media_finished, upload_id, media_pos,
                      std::move(error));
 }
@@ -3578,6 +3711,186 @@ void MessageQueryManager::on_get_recent_locations(DialogId dialog_id, int32 limi
   promise.set_value(std::move(result));
 }
 
+void MessageQueryManager::get_dialog_message_count(DialogId dialog_id,
+                                                   const td_api::object_ptr<td_api::MessageTopic> &topic_id,
+                                                   MessageSearchFilter filter, bool return_local,
+                                                   Promise<int32> &&promise) {
+  auto query_promise = PromiseCreator::lambda([promise = std::move(promise)](Result<vector<int32>> r_counts) mutable {
+    TRY_RESULT_PROMISE(promise, counts, std::move(r_counts));
+    CHECK(counts.size() == 1);
+    promise.set_value(std::move(counts[0]));
+  });
+  get_dialog_message_counts(dialog_id, topic_id, {filter}, return_local, std::move(query_promise));
+}
+
+int32 MessageQueryManager::get_dialog_message_count_local(DialogId dialog_id, const MessageTopic &message_topic,
+                                                          MessageSearchFilter filter) const {
+  if (message_topic.is_saved_messages()) {
+    if (filter == MessageSearchFilter::UnreadMention || filter == MessageSearchFilter::UnreadReaction ||
+        filter == MessageSearchFilter::UnreadPollVote || filter == MessageSearchFilter::FailedToSend) {
+      return 0;
+    }
+    return -1;
+  }
+  if (!message_topic.is_empty()) {
+    if ((filter == MessageSearchFilter::UnreadMention || filter == MessageSearchFilter::UnreadPollVote) &&
+        message_topic.is_monoforum()) {
+      return 0;
+    }
+    if (filter == MessageSearchFilter::FailedToSend) {
+      // TODO
+      return 0;
+    }
+    return -1;
+  }
+
+  return td_->messages_manager_->get_dialog_message_count_local(dialog_id, filter);
+}
+
+static Promise<vector<int32>> get_merged_message_counts_promise(vector<MessageSearchFilter> filters,
+                                                                vector<int32> counts,
+                                                                vector<MessageSearchFilter> queried_filters,
+                                                                Promise<vector<int32>> &&promise) {
+  return PromiseCreator::lambda([filters = std::move(filters), counts = std::move(counts),
+                                 queried_filters = std::move(queried_filters),
+                                 promise = std::move(promise)](Result<vector<int32>> r_queried_counts) mutable {
+    TRY_RESULT_PROMISE(promise, queried_counts, std::move(r_queried_counts));
+    CHECK(queried_counts.size() == queried_filters.size());
+    for (size_t i = 0; i < queried_filters.size(); i++) {
+      for (size_t j = 0; j < filters.size(); j++) {
+        if (filters[j] == queried_filters[i]) {
+          counts[j] = queried_counts[i];
+        }
+      }
+    }
+    promise.set_value(std::move(counts));
+  });
+}
+
+void MessageQueryManager::get_dialog_message_counts(DialogId dialog_id,
+                                                    const td_api::object_ptr<td_api::MessageTopic> &topic_id,
+                                                    vector<MessageSearchFilter> filters, bool return_local,
+                                                    Promise<vector<int32>> &&promise) {
+  TRY_STATUS_PROMISE(promise, td_->dialog_manager_->check_dialog_access(dialog_id, true, AccessRights::Read,
+                                                                        "get_dialog_message_counts"));
+
+  if (td::contains(filters, MessageSearchFilter::Empty)) {
+    return promise.set_error(400, "Can't use searchMessagesFilterEmpty");
+  }
+  TRY_RESULT_PROMISE(promise, message_topic, MessageTopic::get_message_topic(td_, dialog_id, topic_id));
+
+  auto counts = transform(filters, [this, dialog_id, &message_topic](MessageSearchFilter filter) {
+    return get_dialog_message_count_local(dialog_id, message_topic, filter);
+  });
+
+  vector<MessageSearchFilter> server_filters;
+  vector<MessageSearchFilter> topic_unread_filters;
+  if (!return_local && dialog_id.get_type() != DialogType::SecretChat) {
+    for (size_t i = 0; i < filters.size(); i++) {
+      auto filter = filters[i];
+      if (counts[i] != -1 || filter == MessageSearchFilter::FailedToSend) {
+        continue;
+      }
+      bool is_topic_unread_filter = !message_topic.is_empty() && (filter == MessageSearchFilter::UnreadMention ||
+                                                                  filter == MessageSearchFilter::UnreadReaction ||
+                                                                  filter == MessageSearchFilter::UnreadPollVote);
+      auto &query_filters = is_topic_unread_filter ? topic_unread_filters : server_filters;
+      if (!td::contains(query_filters, filter)) {
+        query_filters.push_back(filter);
+      }
+    }
+  }
+  if (server_filters.empty() && topic_unread_filters.empty()) {
+    return promise.set_value(std::move(counts));
+  }
+  if (message_topic.is_thread()) {
+    return promise.set_error(400, "The specified topic type is unsupported");
+  }
+
+  if (topic_unread_filters.empty()) {
+    return get_dialog_message_counts_from_server(
+        dialog_id, message_topic, server_filters,
+        get_merged_message_counts_promise(std::move(filters), std::move(counts), server_filters, std::move(promise)));
+  }
+  if (!server_filters.empty()) {
+    promise = PromiseCreator::lambda([actor_id = actor_id(this), dialog_id, message_topic, filters,
+                                      server_filters = std::move(server_filters),
+                                      promise = std::move(promise)](Result<vector<int32>> r_counts) mutable {
+      TRY_RESULT_PROMISE(promise, counts, std::move(r_counts));
+      auto query_promise =
+          get_merged_message_counts_promise(std::move(filters), std::move(counts), server_filters, std::move(promise));
+      send_closure(actor_id, &MessageQueryManager::get_dialog_message_counts_from_server, dialog_id,
+                   std::move(message_topic), std::move(server_filters), std::move(query_promise));
+    });
+  }
+  get_topic_unread_message_counts(dialog_id, message_topic, topic_unread_filters,
+                                  get_merged_message_counts_promise(std::move(filters), std::move(counts),
+                                                                    topic_unread_filters, std::move(promise)));
+}
+
+void MessageQueryManager::get_topic_unread_message_counts(DialogId dialog_id, const MessageTopic &message_topic,
+                                                          vector<MessageSearchFilter> filters,
+                                                          Promise<vector<int32>> &&promise) {
+  if (message_topic.is_forum()) {
+    auto query_promise =
+        PromiseCreator::lambda([filters = std::move(filters), promise = std::move(promise)](
+                                   Result<td_api::object_ptr<td_api::forumTopic>> r_forum_topic) mutable {
+          TRY_RESULT_PROMISE(promise, forum_topic, std::move(r_forum_topic));
+          if (forum_topic == nullptr) {
+            return promise.set_error(400, "Topic not found");
+          }
+          promise.set_value(transform(filters, [&forum_topic](MessageSearchFilter filter) {
+            switch (filter) {
+              case MessageSearchFilter::UnreadMention:
+                return forum_topic->unread_mention_count_;
+              case MessageSearchFilter::UnreadReaction:
+                return forum_topic->unread_reaction_count_;
+              case MessageSearchFilter::UnreadPollVote:
+                return forum_topic->unread_poll_vote_count_;
+              default:
+                UNREACHABLE();
+                return 0;
+            }
+          }));
+        });
+    return td_->forum_topic_manager_->get_forum_topic(dialog_id, message_topic.get_forum_topic_id(),
+                                                      std::move(query_promise));
+  }
+
+  CHECK(message_topic.is_monoforum());
+  CHECK(filters.size() == 1 && filters[0] == MessageSearchFilter::UnreadReaction);
+  auto query_promise = PromiseCreator::lambda(
+      [promise = std::move(promise)](Result<td_api::object_ptr<td_api::directMessagesChatTopic>> r_topic) mutable {
+        TRY_RESULT_PROMISE(promise, topic, std::move(r_topic));
+        if (topic == nullptr) {
+          return promise.set_error(400, "Topic not found");
+        }
+        promise.set_value(vector<int32>{narrow_cast<int32>(topic->unread_reaction_count_)});
+      });
+  td_->saved_messages_manager_->get_monoforum_topic(dialog_id, message_topic.get_monoforum_saved_messages_topic_id(),
+                                                    std::move(query_promise));
+}
+
+void MessageQueryManager::get_dialog_message_counts_from_server(DialogId dialog_id, MessageTopic message_topic,
+                                                                vector<MessageSearchFilter> filters,
+                                                                Promise<vector<int32>> &&promise) {
+  LOG(INFO) << "Get number of messages in " << dialog_id << " with " << message_topic << " filtered by " << filters
+            << " from the server";
+
+  switch (dialog_id.get_type()) {
+    case DialogType::User:
+    case DialogType::Chat:
+    case DialogType::Channel:
+      td_->create_handler<GetSearchCountersQuery>(std::move(promise))
+          ->send(dialog_id, message_topic, std::move(filters));
+      break;
+    case DialogType::None:
+    case DialogType::SecretChat:
+    default:
+      UNREACHABLE();
+  }
+}
+
 void MessageQueryManager::get_dialog_message_position_from_server(DialogId dialog_id, MessageTopic message_topic,
                                                                   MessageSearchFilter filter, MessageId message_id,
                                                                   Promise<int32> &&promise) {
@@ -3837,12 +4150,9 @@ void MessageQueryManager::try_reload_message_reactions(DialogId dialog_id, bool 
   }
 
   if (!td_->dialog_manager_->have_input_peer(dialog_id, false, AccessRights::Read) || message_ids.empty()) {
-    create_actor<SleepActor>("RetryReloadMessageReactionsActor", 0.2,
-                             PromiseCreator::lambda([actor_id = actor_id(this), dialog_id](Unit) mutable {
-                               send_closure(actor_id, &MessageQueryManager::try_reload_message_reactions, dialog_id,
-                                            true);
-                             }))
-        .release();
+    create_actor<SleepActor>("RetryReloadMessageReactionsActor", 0.2, [actor_id = actor_id(this), dialog_id]() mutable {
+      send_closure(actor_id, &MessageQueryManager::try_reload_message_reactions, dialog_id, true);
+    }).release();
     return;
   }
 
@@ -4170,7 +4480,8 @@ void MessageQueryManager::edit_ephemeral_message_caption(DialogId dialog_id, Use
 
 void MessageQueryManager::edit_callback_query_message(
     int64 callback_query_id, bool anchor, bool noforwards, td_api::object_ptr<td_api::ReplyMarkup> &&reply_markup,
-    td_api::object_ptr<td_api::InputMessageContent> &&input_message_content, Promise<Unit> &&promise) {
+    td_api::object_ptr<td_api::InputMessageContent> &&input_message_content,
+    Promise<td_api::object_ptr<td_api::message>> &&promise) {
   auto is_bot = td_->auth_manager_->is_bot();
   CHECK(is_bot);
 
@@ -4196,7 +4507,7 @@ void MessageQueryManager::edit_callback_query_message(
   query.reply_markup_ = std::move(new_reply_markup);
   query.content_ = std::move(content.content);
   query.invert_media_ = content.invert_media;
-  query.promise_ = std::move(promise);
+  query.message_promise_ = std::move(promise);
   start_upload_message_content(upload_id);
 }
 
@@ -4206,6 +4517,7 @@ void MessageQueryManager::cancel_edit_ephemeral_message(MessageContentUploadId u
     return;
   }
   auto promise = std::move(it->second.promise_);
+  auto message_promise = std::move(it->second.message_promise_);
   if (status.is_error()) {
     status = process_send_message_fail_error(std::move(status), it->second.dialog_id_, td_->auth_manager_->is_bot(),
                                              true, it->second.content_->get_type());
@@ -4214,10 +4526,34 @@ void MessageQueryManager::cancel_edit_ephemeral_message(MessageContentUploadId u
 
   cancel_upload_message_content(upload_id);
   if (status.is_error()) {
+    message_promise.set_error(status.clone());
     promise.set_error(std::move(status));
   } else {
+    CHECK(!message_promise);
     promise.set_value(Unit());
   }
+}
+
+void MessageQueryManager::on_edit_callback_query_message(MessageContentUploadId upload_id, DialogId dialog_id,
+                                                         EphemeralMessageId ephemeral_message_id) {
+  auto it = edit_ephemeral_message_queries_.find(upload_id);
+  if (it == edit_ephemeral_message_queries_.end()) {
+    return;
+  }
+  CHECK(it->second.is_send_);
+  auto promise = std::move(it->second.message_promise_);
+  edit_ephemeral_message_queries_.erase(it);
+
+  cancel_upload_message_content(upload_id);
+  if (!dialog_id.is_valid()) {
+    return promise.set_error(500, "Receive invalid response");
+  }
+  auto message_id = td_->messages_manager_->get_message_id_of_ephemeral_message_id(dialog_id, ephemeral_message_id);
+  if (!message_id.is_valid()) {
+    return promise.set_error(500, "Message not found");
+  }
+  promise.set_value(
+      td_->messages_manager_->get_message_object({dialog_id, message_id}, "on_edit_callback_query_message"));
 }
 
 telegram_api::object_ptr<telegram_api::InputPeer> MessageQueryManager::get_ephemeral_message_input_peer(
@@ -5207,6 +5543,16 @@ void MessageQueryManager::unpin_all_dialog_messages_on_server(DialogId dialog_id
   };
   run_affected_history_query_until_complete(dialog_id, std::move(query), true,
                                             get_erase_log_event_promise(log_event_id, std::move(promise)));
+}
+
+void MessageQueryManager::set_dialog_text_composition_parameters(
+    DialogId dialog_id, td_api::object_ptr<td_api::textCompositionParameters> &&text_composition_parameters,
+    Promise<Unit> &&promise) {
+  TRY_STATUS_PROMISE(promise, td_->dialog_manager_->check_dialog_access(dialog_id, false, AccessRights::Read,
+                                                                        "set_dialog_text_composition_parameters"));
+  TRY_RESULT_PROMISE(promise, ai_compose_style,
+                     td_->translation_manager_->get_ai_compose_style(std::move(text_composition_parameters)));
+  td_->create_handler<SetChatStyleQuery>(std::move(promise))->send(dialog_id, std::move(ai_compose_style));
 }
 
 void MessageQueryManager::on_update_emoji_game_info(
