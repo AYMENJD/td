@@ -813,6 +813,8 @@ void Td::close_impl(bool destroy_flag) {
   close_flag_ = 1;
   G()->set_close_flag();
   send_closure(auth_manager_actor_, &AuthManager::on_closing, destroy_flag);
+  send_closure(call_manager_actor_, &CallManager::on_closing);
+  group_call_manager_->on_closing();
   updates_manager_->timeout_expired();  // save PTS and QTS
 
   // wait till all request_actors will stop
