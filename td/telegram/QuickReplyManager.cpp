@@ -1810,9 +1810,9 @@ void QuickReplyManager::process_send_quick_reply_updates(QuickReplyShortcutId sh
                 }
 
                 update_sent_message_content_from_temporary_message(it->get(), message.get(), false);
+                unregister_message_content(it->get(), "process_send_quick_reply_updates 2");
                 auto old_message_it = get_message_it(s, message->message_id);
                 if (old_message_it == s->messages_.end()) {
-                  unregister_message_content(it->get(), "process_send_quick_reply_updates 2");
                   *it = std::move(message);
                   register_new_message(it->get(), "process_send_quick_reply_updates 2");
                   s->server_total_count_++;
