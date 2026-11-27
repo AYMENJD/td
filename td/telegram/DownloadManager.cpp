@@ -292,6 +292,7 @@ class DownloadManagerImpl final : public DownloadManager {
     }
 
     bool need_update = false;
+    auto download_id = file_info.download_id;
     with_file_info(file_info, [&](FileInfo &file_info) {
       file_info.size = size;
       file_info.expected_size = expected_size;
@@ -305,6 +306,10 @@ class DownloadManagerImpl final : public DownloadManager {
         callback_->pause_file(file_info.file_id, file_info.internal_download_id);
       }
     });
+    if (files_.count(download_id) == 0) {
+      // the file has been completed and immediately removed from the list of completed downloads
+      return;
+    }
     if (is_search_inited_ && need_update) {
       callback_->update_file_changed(file_info.file_id, file_info.completed_at, file_info.is_paused, file_counters_);
     }
