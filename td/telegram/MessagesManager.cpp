@@ -7153,8 +7153,14 @@ void MessagesManager::get_channel_difference_if_needed(DialogId dialog_id, Messa
       auto max_message_id = MessageId::get_max_message_id(messages_info.messages);
       return run_after_channel_difference(
           dialog_id, max_message_id,
-          PromiseCreator::lambda([messages_info = std::move(messages_info), promise = std::move(promise)](
-                                     Unit ignored) mutable { promise.set_value(std::move(messages_info)); }),
+          PromiseCreator::lambda(
+              [messages_info = std::move(messages_info), promise = std::move(promise)](Result<Unit> &&result) mutable {
+                if (result.is_error()) {
+                  promise.set_error(result.move_as_error());
+                } else {
+                  promise.set_value(std::move(messages_info));
+                }
+              }),
           source);
     }
   }
