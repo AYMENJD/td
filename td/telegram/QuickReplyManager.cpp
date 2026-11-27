@@ -2091,12 +2091,13 @@ void QuickReplyManager::do_send_message_group(QuickReplyShortcutId shortcut_id, 
   auto it = pending_message_group_sends_.find(media_album_id);
   CHECK(it != pending_message_group_sends_.end());
 
-  auto &request = it->second;
   auto *s = get_shortcut(shortcut_id);
   if (s == nullptr) {
+    pending_message_group_sends_.erase(it);
     return;
   }
 
+  auto &request = it->second;
   vector<FileId> file_ids;
   vector<FileId> cover_file_ids;
   vector<int64> random_ids;
