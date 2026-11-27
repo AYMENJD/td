@@ -13952,7 +13952,9 @@ vector<DialogId> MessagesManager::get_dialogs(DialogListId dialog_list_id, Dialo
   if (!list.pinned_dialogs_.empty() && offset < list.pinned_dialogs_.back() && limit > 0) {
     bool need_reload_pinned_dialogs = false;
     bool need_remove_unknown_secret_chats = false;
-    for (auto &pinned_dialog : list.pinned_dialogs_) {
+    // loading of a pinned chat can remove it from the list of pinned chats, therefore iterate over a copy of the list
+    auto pinned_dialogs = list.pinned_dialogs_;
+    for (auto &pinned_dialog : pinned_dialogs) {
       if (offset < pinned_dialog) {
         auto dialog_id = pinned_dialog.get_dialog_id();
         auto d = get_dialog_force(dialog_id, "get_dialogs pinned");
