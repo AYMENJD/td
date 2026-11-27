@@ -3047,6 +3047,10 @@ void MessageQueryManager::do_upload_message_content(MessageContentUploadId uploa
       if (can_have_multiple_files) {
         if (file_view.empty()) {
           on_upload_message_media_finished(upload_id, static_cast<int32>(i), Status::OK());
+
+          // the query must not be changed by the callback
+          auto new_it = upload_message_content_queries_.find(upload_id);
+          CHECK(new_it != upload_message_content_queries_.end() && &new_it->second == &query);
           continue;
         }
         if (!file_view.has_full_remote_location() && file_view.has_url()) {
@@ -3192,6 +3196,11 @@ void MessageQueryManager::on_upload_thumbnail(FileUploadId thumbnail_file_upload
 
   if (thumbnail_input_file == nullptr) {
     query.callback_->on_failed_to_upload_message_content_thumbnail(upload_id, media_pos);
+
+    // the query must not be changed by the callback
+    auto new_it = upload_message_content_queries_.find(upload_id);
+    CHECK(new_it != upload_message_content_queries_.end() && &new_it->second == &query);
+
     delete_message_content_thumbnail(td_, query.content_.get(), media_pos);
     FileUploadId::delete_file_upload_id(&query.thumbnail_file_upload_ids_, media_pos);
   }
@@ -3272,6 +3281,11 @@ void MessageQueryManager::on_upload_message_media_success(
       dup_message_content(td_, query.dialog_id_, content.get(), MessageContentDupType::Send, false,
                           MessageCopyOptions()),
       media_pos == -1, is_content_changed, need_update);
+
+  // the query must not be changed by the callback
+  auto new_it = upload_message_content_queries_.find(upload_id);
+  CHECK(new_it != upload_message_content_queries_.end() && &new_it->second == &query);
+
   merge_and_compare_message_contents(td_, message_content.get(), content.get(), false, query.dialog_id_,
                                      media_pos == -1, query.file_upload_ids_, query.ttl_, 0.0, nullptr,
                                      is_content_changed, need_update);

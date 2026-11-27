@@ -13987,7 +13987,14 @@ vector<DialogId> MessagesManager::get_dialogs(DialogListId dialog_list_id, Dialo
     if (need_remove_unknown_secret_chats) {
       td::remove_if(list.pinned_dialogs_, [this, &list](const DialogDate &dialog_date) {
         auto dialog_id = dialog_date.get_dialog_id();
-        if (dialog_id.get_type() == DialogType::SecretChat && !have_dialog_force(dialog_id, "get_dialogs 2")) {
+        if (dialog_id.get_type() != DialogType::SecretChat) {
+          return false;
+        }
+        auto pinned_dialog_count = list.pinned_dialogs_.size();
+        auto have_dialog = have_dialog_force(dialog_id, "get_dialogs 2");
+        // the list of pinned chats must not be changed while it is traversed
+        CHECK(list.pinned_dialogs_.size() == pinned_dialog_count);
+        if (!have_dialog) {
           list.pinned_dialog_id_orders_.erase(dialog_id);
           return true;
         }
@@ -26745,12 +26752,15 @@ void MessagesManager::flush_pending_new_message_notifications(DialogId dialog_id
                       << " because of received notification settings in " << settings_dialog_id;
   auto it = pending_notifications.begin();
   while (it != pending_notifications.end() && it->first == DialogId()) {
+    auto pending_notification_count = pending_notifications.size();
     auto m = get_message(d, it->second);
     if (m == nullptr) {
       VLOG(notifications) << "Can't find " << it->second << " in " << dialog_id << " with pending notification";
     } else if (add_new_message_notification(d, m, true)) {
       on_message_changed(d, m, false, "flush_pending_new_message_notifications");
     }
+    // the list of pending notifications must not be changed while it is traversed
+    CHECK(pending_notifications.size() == pending_notification_count);
     ++it;
   }
 
@@ -34882,6 +34892,12 @@ void MessagesManager::process_get_channel_difference_updates(
   std::map<MessageId, AwaitedMessage> awaited_messages;
   if (postponed_updates_it != postponed_channel_updates_.end()) {
     auto &updates = postponed_updates_it->second;
+    // the list of postponed updates must not be moved or deleted while the updates are processed
+    auto check_postponed_updates = [&] {
+      auto new_postponed_updates_it = postponed_channel_updates_.find(dialog_id);
+      CHECK(new_postponed_updates_it != postponed_channel_updates_.end() &&
+            &new_postponed_updates_it->second == &updates);
+    };
     while (!updates.empty()) {
       auto it = updates.begin();
       auto update_pts = it->second.pts;
@@ -34908,6 +34924,7 @@ void MessagesManager::process_get_channel_difference_updates(
 
       LOG(INFO) << "Skip to be applied from getChannelDifference " << to_string(update);
       promise.set_value(Unit());
+      check_postponed_updates();
     }
     if (updates.empty()) {
       postponed_channel_updates_.erase(postponed_updates_it);
@@ -35360,6 +35377,12 @@ void MessagesManager::after_get_channel_difference(DialogId dialog_id, bool succ
   auto postponed_updates_it = postponed_channel_updates_.find(dialog_id);
   if (postponed_updates_it != postponed_channel_updates_.end()) {
     auto &updates = postponed_updates_it->second;
+    // the list of postponed updates must not be moved or deleted while the updates are processed
+    auto check_postponed_updates = [&] {
+      auto new_postponed_updates_it = postponed_channel_updates_.find(dialog_id);
+      CHECK(new_postponed_updates_it != postponed_channel_updates_.end() &&
+            &new_postponed_updates_it->second == &updates);
+    };
     LOG(INFO) << "Begin to apply " << updates.size() << " postponed channel updates";
     while (!updates.empty()) {
       auto it = updates.begin();
@@ -35377,6 +35400,7 @@ void MessagesManager::after_get_channel_difference(DialogId dialog_id, bool succ
       } else {
         promise.set_value(Unit());
       }
+      check_postponed_updates();
       if (updates.size() != old_size || running_get_channel_difference(dialog_id)) {
         if (success && update_pts - 10000 < pts && update_pts_count == 1) {
           // if getChannelDifference was successful and update PTS is near channel PTS,
@@ -35395,6 +35419,7 @@ void MessagesManager::after_get_channel_difference(DialogId dialog_id, bool succ
           for (auto &update_promise : update_promises) {
             update_promise.set_value(Unit());
           }
+          check_postponed_updates();
         }
         break;
       }

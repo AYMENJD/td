@@ -1159,6 +1159,8 @@ void DialogParticipantManager::update_user_online_member_count(UserId user_id) {
 
   auto now = G()->unix_time();
   vector<DialogId> expired_dialog_ids;
+  auto user_count = user_online_member_dialogs_.size();
+  auto dialog_count = online_member_dialogs.size();
   for (const auto &it : online_member_dialogs) {
     auto dialog_id = it.first;
     auto time = it.second;
@@ -1180,6 +1182,10 @@ void DialogParticipantManager::update_user_online_member_count(UserId user_id) {
         UNREACHABLE();
         break;
     }
+
+    // the maps must not be changed while they are traversed
+    CHECK(user_online_member_dialogs_.size() == user_count);
+    CHECK(online_member_dialogs.size() == dialog_count);
   }
   for (auto &dialog_id : expired_dialog_ids) {
     online_member_dialogs.erase(dialog_id);
