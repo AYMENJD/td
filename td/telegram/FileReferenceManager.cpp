@@ -461,22 +461,17 @@ void FileReferenceManager::run_node(NodeId node_id) {
   }
   if (!node.file_source_ids.has_next()) {
     VLOG(file_references) << "Have no more file sources to repair file reference for file " << node_id;
-    for (auto &p : node.query->promises) {
-      if (node.file_source_ids.empty()) {
-        p.set_error(400, "File source is not found");
-      } else {
-        p.set_error(429, "Too Many Requests: retry after 1");
-      }
-    }
+    auto promises = std::move(node.query->promises);
     node.query = {};
+    fail_promises(promises, node.file_source_ids.empty() ? Status::Error(400, "File source is not found")
+                                                         : Status::Error(429, "Too Many Requests: retry after 1"));
     return;
   }
   if (node.last_successful_repair_time >= Time::now() - 60) {
     VLOG(file_references) << "Recently repaired file reference for file " << node_id << ", do not try again";
-    for (auto &p : node.query->promises) {
-      p.set_error(429, "Too Many Requests: retry after 60");
-    }
+    auto promises = std::move(node.query->promises);
     node.query = {};
+    fail_promises(promises, Status::Error(429, "Too Many Requests: retry after 60"));
     return;
   }
   auto file_source_id = node.file_source_ids.next();
@@ -653,10 +648,9 @@ FileReferenceManager::Destination FileReferenceManager::on_query_result(Destinat
 
   if (status.is_ok()) {
     node.last_successful_repair_time = Time::now();
-    for (auto &p : query->promises) {
-      p.set_value(Unit());
-    }
+    auto promises = std::move(query->promises);
     node.query = {};
+    set_promises(promises);
   }
 
   run_node(dest.node_id);
