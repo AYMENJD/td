@@ -6958,11 +6958,13 @@ void MessagesManager::after_get_difference() {
 
   if (!pending_on_get_dialogs_.empty()) {
     LOG(INFO) << "Apply postponed results of getDialogs";
-    for (auto &res : pending_on_get_dialogs_) {
+    auto pending_on_get_dialogs = std::move(pending_on_get_dialogs_);
+    reset_to_empty(pending_on_get_dialogs_);
+    for (auto &res : pending_on_get_dialogs) {
       on_get_dialogs(res.folder_id, std::move(res.dialogs), res.total_count, std::move(res.messages),
                      std::move(res.promise));
     }
-    pending_on_get_dialogs_.clear();
+    CHECK(pending_on_get_dialogs_.empty());
   }
 
   if (!postponed_chat_read_inbox_updates_.empty()) {
