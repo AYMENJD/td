@@ -3114,6 +3114,7 @@ void QuickReplyManager::update_shortcut_from(Shortcut *new_shortcut, Shortcut *o
         }
       }
       sort_quick_reply_messages(new_shortcut->messages_);
+      CHECK(new_shortcut->local_total_count_ == old_shortcut->local_total_count_);
     }
   }
   new_shortcut->local_total_count_ = old_shortcut->local_total_count_;
