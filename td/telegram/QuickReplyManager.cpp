@@ -1791,6 +1791,7 @@ void QuickReplyManager::process_send_quick_reply_updates(QuickReplyShortcutId sh
             update = nullptr;
           }
         }
+        cancel_upload_message_content((*it)->upload_id);
         if (new_message_id.is_valid()) {
           for (auto &update : updates->updates_) {
             if (update != nullptr && update->get_id() == telegram_api::updateQuickReplyMessage::ID &&
@@ -1809,7 +1810,6 @@ void QuickReplyManager::process_send_quick_reply_updates(QuickReplyShortcutId sh
                 }
 
                 update_sent_message_content_from_temporary_message(it->get(), message.get(), false);
-                cancel_upload_message_content((*it)->upload_id);
                 auto old_message_it = get_message_it(s, message->message_id);
                 if (old_message_it == s->messages_.end()) {
                   unregister_message_content(it->get(), "process_send_quick_reply_updates 2");
@@ -1828,7 +1828,6 @@ void QuickReplyManager::process_send_quick_reply_updates(QuickReplyShortcutId sh
             }
           }
         }
-        cancel_upload_message_content((*it)->upload_id);
         break;
       }
     }
