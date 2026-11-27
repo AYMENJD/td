@@ -5029,9 +5029,13 @@ void MessagesManager::on_update_live_location_viewed(MessageFullId message_full_
 void MessagesManager::on_update_some_live_location_viewed(Promise<Unit> &&promise) {
   LOG(DEBUG) << "Some live location was viewed";
   if (!are_active_live_location_messages_loaded_) {
-    load_active_live_location_messages(
-        PromiseCreator::lambda([actor_id = actor_id(this), promise = std::move(promise)](Unit result) mutable {
-          send_closure(actor_id, &MessagesManager::on_update_some_live_location_viewed, std::move(promise));
+    load_active_live_location_messages(PromiseCreator::lambda(
+        [actor_id = actor_id(this), promise = std::move(promise)](Result<Unit> &&result) mutable {
+          if (result.is_error()) {
+            promise.set_error(result.move_as_error());
+          } else {
+            send_closure(actor_id, &MessagesManager::on_update_some_live_location_viewed, std::move(promise));
+          }
         }));
     return;
   }
@@ -14407,6 +14411,8 @@ void MessagesManager::read_all_dialogs_from_list(DialogListId dialog_list_id, Pr
 
   auto query_promise = PromiseCreator::lambda([actor_id = actor_id(this), dialog_list_id, promise = std::move(promise)](
                                                   Result<td_api::object_ptr<td_api::chats>> &&) mutable {
+    TRY_STATUS_PROMISE(promise, G()->close_status());
+
     // it is expected that loading of so many chats will fail, so just ignore the error and result itself
     send_closure(actor_id, &MessagesManager::read_all_dialogs_from_list, dialog_list_id, std::move(promise), true);
   });
