@@ -2559,17 +2559,11 @@ void QuickReplyManager::on_reload_quick_reply_messages(
         quick_reply_messages.push_back(std::move(message));
       }
       auto it = get_shortcut_it(shortcut_id);
-      if (quick_reply_messages.empty()) {
-        if (it != shortcuts_.shortcuts_.end()) {
-          send_update_quick_reply_shortcut_deleted(it->get());
-          shortcuts_.shortcuts_.erase(it);
-          save_quick_reply_shortcuts();
-          send_update_quick_reply_shortcuts();
-        }
+      auto *old_shortcut = it != shortcuts_.shortcuts_.end() ? it->get() : nullptr;
+      if (quick_reply_messages.empty() && old_shortcut == nullptr) {
         break;
       }
 
-      auto *old_shortcut = it != shortcuts_.shortcuts_.end() ? it->get() : nullptr;
       auto shortcut_name = old_shortcut != nullptr ? old_shortcut->name_ : old_shortcut_name;
       if (shortcut_name.empty()) {
         // can't create a shortcut without a name
@@ -2594,6 +2588,13 @@ void QuickReplyManager::on_reload_quick_reply_messages(
         bool is_shortcut_changed = false;
         bool are_messages_changed = false;
         update_shortcut_from(shortcut.get(), old_shortcut, false, &is_shortcut_changed, &are_messages_changed);
+        if (shortcut->messages_.empty()) {
+          send_update_quick_reply_shortcut_deleted(shortcut.get());
+          shortcuts_.shortcuts_.erase(it);
+          save_quick_reply_shortcuts();
+          send_update_quick_reply_shortcuts();
+          break;
+        }
         CHECK(have_all_shortcut_messages(shortcut.get()));
         if (is_shortcut_changed) {
           send_update_quick_reply_shortcut(shortcut.get(), "on_reload_quick_reply_messages 3");
@@ -3040,7 +3041,7 @@ void QuickReplyManager::update_shortcut_from(Shortcut *new_shortcut, Shortcut *o
   CHECK(old_shortcut->shortcut_id_.is_server());
   CHECK(old_shortcut->shortcut_id_ == new_shortcut->shortcut_id_);
   CHECK(!old_shortcut->messages_.empty());
-  CHECK(!new_shortcut->messages_.empty());
+  CHECK(!is_partial || !new_shortcut->messages_.empty());
   auto old_unique_id = get_quick_reply_unique_id(old_shortcut->messages_[0].get());
   auto old_message_count = get_shortcut_message_count(old_shortcut);
   if (is_partial) {
@@ -3115,9 +3116,9 @@ void QuickReplyManager::update_shortcut_from(Shortcut *new_shortcut, Shortcut *o
     }
   }
   new_shortcut->local_total_count_ = old_shortcut->local_total_count_;
-  *is_shortcut_changed = old_unique_id != get_quick_reply_unique_id(new_shortcut->messages_[0].get()) ||
-                         new_shortcut->name_ != old_shortcut->name_ ||
-                         old_message_count != get_shortcut_message_count(new_shortcut);
+  *is_shortcut_changed =
+      new_shortcut->messages_.empty() || old_unique_id != get_quick_reply_unique_id(new_shortcut->messages_[0].get()) ||
+      new_shortcut->name_ != old_shortcut->name_ || old_message_count != get_shortcut_message_count(new_shortcut);
 }
 
 string QuickReplyManager::get_quick_reply_shortcuts_database_key() {
