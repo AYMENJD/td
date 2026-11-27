@@ -4581,9 +4581,13 @@ void MessageQueryManager::process_discussion_message(
           expected_dialog_id, max_message_id,
           PromiseCreator::lambda([actor_id = actor_id(this), result = std::move(result), dialog_id, message_id,
                                   expected_dialog_id, expected_message_id,
-                                  promise = std::move(promise)](Unit ignored) mutable {
-            send_closure(actor_id, &MessageQueryManager::process_discussion_message_impl, std::move(result), dialog_id,
-                         message_id, expected_dialog_id, expected_message_id, std::move(promise));
+                                  promise = std::move(promise)](Result<Unit> &&r_result) mutable {
+            if (r_result.is_error()) {
+              promise.set_error(r_result.move_as_error());
+            } else {
+              send_closure(actor_id, &MessageQueryManager::process_discussion_message_impl, std::move(result),
+                           dialog_id, message_id, expected_dialog_id, expected_message_id, std::move(promise));
+            }
           }),
           "process_discussion_message");
     }

@@ -5795,17 +5795,18 @@ void StoryManager::get_story(DialogId owner_dialog_id, StoryId story_id, bool on
 
   auto query_promise = PromiseCreator::lambda(
       [actor_id = actor_id(this), story_full_id, promise = std::move(promise)](Result<Unit> &&result) mutable {
-        send_closure(actor_id, &StoryManager::do_get_story, story_full_id, std::move(result), std::move(promise));
+        if (result.is_error()) {
+          promise.set_error(result.move_as_error());
+        } else {
+          send_closure(actor_id, &StoryManager::do_get_story, story_full_id, std::move(promise));
+        }
       });
   reload_story(story_full_id, std::move(query_promise), "get_story");
 }
 
-void StoryManager::do_get_story(StoryFullId story_full_id, Result<Unit> &&result,
-                                Promise<td_api::object_ptr<td_api::story>> &&promise) {
-  G()->ignore_result_if_closing(result);
-  if (result.is_error()) {
-    return promise.set_error(result.move_as_error());
-  }
+void StoryManager::do_get_story(StoryFullId story_full_id, Promise<td_api::object_ptr<td_api::story>> &&promise) {
+  TRY_STATUS_PROMISE(promise, G()->close_status());
+
   const Story *story = get_story(story_full_id);
   if (story != nullptr && story->content_ != nullptr && !story->is_update_sent_) {
     send_update_story(story_full_id, story);

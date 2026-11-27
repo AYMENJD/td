@@ -652,8 +652,7 @@ class StoryManager final : public Actor {
 
   void change_story_files(StoryFullId story_full_id, const Story *story, const vector<FileId> &old_file_ids);
 
-  void do_get_story(StoryFullId story_full_id, Result<Unit> &&result,
-                    Promise<td_api::object_ptr<td_api::story>> &&promise);
+  void do_get_story(StoryFullId story_full_id, Promise<td_api::object_ptr<td_api::story>> &&promise);
 
   void on_reload_story(StoryFullId story_full_id, Result<Unit> &&result);
 
