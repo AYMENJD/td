@@ -3168,6 +3168,7 @@ void QuickReplyManager::load_quick_reply_shortcuts() {
     if (shortcut->shortcut_id_.get() >= next_local_shortcut_id_) {
       next_local_shortcut_id_ = shortcut->shortcut_id_.get() + 1;
     }
+    vector<const QuickReplyMessage *> being_sent_messages;
     for (auto &message : shortcut->messages_) {
       if (message->shortcut_id != shortcut->shortcut_id_) {
         LOG(ERROR) << "Receive quick reply " << message->message_id << " in " << message->shortcut_id << " instead of "
@@ -3181,11 +3182,15 @@ void QuickReplyManager::load_quick_reply_shortcuts() {
           reload_quick_reply_message(shortcut->shortcut_id_, message->message_id, Promise<Unit>());
         }
         if (message->edited_content != nullptr) {
-          do_send_message(message.get());
+          being_sent_messages.push_back(message.get());
         }
       } else if (message->message_id.is_yet_unsent()) {
-        do_send_message(message.get());
+        being_sent_messages.push_back(message.get());
       }
+    }
+    // do_send_message can fail immediately and change order of the messages, so it must be called after the traversal
+    for (auto *message : being_sent_messages) {
+      do_send_message(message);
     }
     send_update_quick_reply_shortcut(shortcut.get(), "load_quick_reply_shortcuts");
     send_update_quick_reply_shortcut_messages(shortcut.get(), "load_quick_reply_shortcuts");
