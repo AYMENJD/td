@@ -10418,12 +10418,6 @@ void MessagesManager::hangup() {
     get_dialogs_tasks_.erase(it);
     promise.set_error(Global::request_aborted_error());
   }
-  while (!get_dialogs_tasks_.empty()) {
-    auto it = get_dialogs_tasks_.begin();
-    auto promise = std::move(it->second.promise);
-    get_dialogs_tasks_.erase(it);
-    promise.set_error(Global::request_aborted_error());
-  }
   for (auto &list_it : dialog_lists_) {
     auto &list = list_it.second;
     if (!list.load_list_queries_.empty()) {
