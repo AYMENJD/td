@@ -53,6 +53,19 @@ FileReferenceManager::~FileReferenceManager() {
   Scheduler::instance()->destroy_on_scheduler(G()->get_gc_scheduler_id(), file_sources_, nodes_);
 }
 
+void FileReferenceManager::hangup() {
+  vector<Promise<>> promises;
+  nodes_.foreach([&promises](const NodeId &node_id, unique_ptr<Node> &node) {
+    if (node->query != nullptr) {
+      combine(promises, std::move(node->query->promises));
+      node->query = {};
+    }
+  });
+  fail_promises(promises, Global::request_aborted_error());
+
+  stop();
+}
+
 void FileReferenceManager::tear_down() {
   parent_.reset();
 }

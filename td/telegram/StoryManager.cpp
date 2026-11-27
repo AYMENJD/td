@@ -6197,6 +6197,10 @@ void StoryManager::do_upload_story(unique_ptr<PendingStory> &&pending_story, vec
 
 void StoryManager::on_repair_story_music_file_reference(unique_ptr<PendingStory> &&pending_story,
                                                         Result<Unit> &&result) {
+  if (G()->close_flag()) {
+    return;
+  }
+
   CHECK(pending_story != nullptr);
   if (result.is_ok()) {
     return do_upload_story(std::move(pending_story), {});
