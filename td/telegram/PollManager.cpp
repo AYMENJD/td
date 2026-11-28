@@ -2187,10 +2187,11 @@ PollId PollManager::on_get_poll(PollId poll_id, tl_object_ptr<telegram_api::poll
       }
       auto it = poll_voters_.find(poll_id);
       if (it != poll_voters_.end()) {
-        for (auto &voters : it->second) {
+        auto poll_voters = std::move(it->second);
+        poll_voters_.erase(it);
+        for (auto &voters : poll_voters) {
           fail_promises(voters.pending_queries_, Status::Error(500, "The poll was changed"));
         }
-        poll_voters_.erase(it);
       }
       td_->web_pages_manager_->register_poll_web_pages(poll_id, get_poll_web_page_ids(poll));
       is_changed = true;
