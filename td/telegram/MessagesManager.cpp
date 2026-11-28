@@ -13969,7 +13969,7 @@ vector<DialogId> MessagesManager::get_dialogs(DialogListId dialog_list_id, Dialo
           }
           continue;
         }
-        if (d->order == DEFAULT_ORDER) {
+        if (d->order == DEFAULT_ORDER || get_dialog_pinned_order(&list, dialog_id) == DEFAULT_ORDER) {
           LOG(INFO) << "Loaded pinned " << dialog_id << " with default order in " << dialog_list_id;
           continue;
         }
