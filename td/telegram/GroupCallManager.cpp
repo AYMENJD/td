@@ -5139,8 +5139,9 @@ void GroupCallManager::finish_join_group_call(InputGroupCallId input_group_call_
   }
 
   GroupCall *group_call = get_group_call(input_group_call_id);
+  CHECK(group_call != nullptr);
   bool need_update = false;
-  if (group_call != nullptr && group_call->is_being_joined) {
+  if (group_call->is_being_joined) {
     bool old_is_joined = get_group_call_is_joined(group_call);
     group_call->is_being_joined = false;
     need_update |= old_is_joined != get_group_call_is_joined(group_call);
@@ -5148,7 +5149,6 @@ void GroupCallManager::finish_join_group_call(InputGroupCallId input_group_call_
   group_call->old_messages.clear();
   remove_recent_group_call_speaker(input_group_call_id, as_dialog_id);
   if (try_clear_group_call_participants(input_group_call_id)) {
-    CHECK(group_call != nullptr);
     need_update = true;
   }
   if (need_update && group_call->is_inited) {
@@ -5156,7 +5156,7 @@ void GroupCallManager::finish_join_group_call(InputGroupCallId input_group_call_
   }
   process_group_call_after_join_requests(input_group_call_id, "finish_join_group_call");
 
-  if (group_call != nullptr && group_call->dialog_id.is_valid()) {
+  if (group_call->dialog_id.is_valid()) {
     update_group_call_dialog(group_call, "finish_join_group_call", false);
     td_->dialog_manager_->reload_dialog_info_full(group_call->dialog_id, "finish_join_group_call");
   }
