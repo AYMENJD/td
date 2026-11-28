@@ -1338,16 +1338,15 @@ void PollManager::do_set_poll_answer(PollId poll_id, MessageFullId message_full_
     }
   }
 
+  // the old promises must be set after pending_answer is used, because they can change pending_answers_
+  vector<Promise<Unit>> old_promises;
   if (!pending_answer.promises_.empty()) {
     CHECK(!pending_answer.query_ref_.empty());
     cancel_query(pending_answer.query_ref_);
     pending_answer.query_ref_ = NetQueryRef();
 
-    auto promises = std::move(pending_answer.promises_);
+    old_promises = std::move(pending_answer.promises_);
     pending_answer.promises_.clear();
-    for (auto &old_promise : promises) {
-      old_promise.set_value(Unit());
-    }
   }
 
   vector<BufferSlice> sent_options;
@@ -1371,6 +1370,8 @@ void PollManager::do_set_poll_answer(PollId poll_id, MessageFullId message_full_
       });
   td_->create_handler<SendVoteQuery>(std::move(query_promise))
       ->send(message_full_id, std::move(sent_options), poll_id, generation, &pending_answer.query_ref_);
+
+  set_promises(old_promises);
 }
 
 void PollManager::on_set_poll_answer(PollId poll_id, uint64 generation,
