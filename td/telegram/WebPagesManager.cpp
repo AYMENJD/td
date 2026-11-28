@@ -1134,6 +1134,10 @@ void WebPagesManager::register_poll_web_pages(PollId poll_id, vector<WebPageId> 
     poll_web_pages_.erase(it);
     return;
   }
+  for (auto web_page_id : web_page_ids) {
+    have_web_page_force(web_page_id);
+  }
+
   auto &old_web_page_ids = poll_web_pages_[poll_id];
   if (old_web_page_ids == web_page_ids) {
     return;
@@ -1146,7 +1150,7 @@ void WebPagesManager::register_poll_web_pages(PollId poll_id, vector<WebPageId> 
       bool is_inserted = web_page_polls_[web_page_id].insert(poll_id).second;
       LOG_CHECK(is_inserted) << web_page_id << ' ' << poll_id;
 
-      if (!have_web_page_force(web_page_id)) {
+      if (!have_web_page(web_page_id)) {
         LOG(INFO) << "Waiting for " << web_page_id << " needed in " << poll_id;
         pending_web_pages_timeout_.add_timeout_in(web_page_id.get(), 1.0);
       }
