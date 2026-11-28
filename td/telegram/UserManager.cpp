@@ -7087,11 +7087,15 @@ void UserManager::on_get_user_profile_photos(UserId user_id, Result<Unit> &&resu
     }
     auto &requests = pending_get_user_photos_requests_[user_id];
     requests = std::move(pending_requests);
-    return send_get_user_photos_query(user_id, user_photos, requests);
+    // the pointer could be invalidated by the promise
+    return send_get_user_photos_query(user_id, add_user_photos(user_id), requests);
   }
 
   CHECK(user_photos->offset != -1);
   LOG(INFO) << "Have " << user_photos->count << " cached user profile photos at offset " << user_photos->offset;
+  // the promises must be set after the cached data is used, because they can invalidate the pointer
+  vector<std::pair<Promise<td_api::object_ptr<td_api::chatPhotos>>, Result<td_api::object_ptr<td_api::chatPhotos>>>>
+      finished_requests;
   vector<PendingGetPhotoRequest> left_requests;
   for (size_t request_index = 0; request_index < pending_requests.size(); request_index++) {
     auto &request = pending_requests[request_index];
@@ -7099,7 +7103,8 @@ void UserManager::on_get_user_profile_photos(UserId user_id, Result<Unit> &&resu
 
     if (request.offset >= user_photos->count) {
       // offset if too big
-      request.promise.set_value(td_api::make_object<td_api::chatPhotos>(user_photos->count, std::move(photo_objects)));
+      finished_requests.emplace_back(std::move(request.promise), td_api::make_object<td_api::chatPhotos>(
+                                                                     user_photos->count, std::move(photo_objects)));
       continue;
     }
 
@@ -7115,12 +7120,13 @@ void UserManager::on_get_user_profile_photos(UserId user_id, Result<Unit> &&resu
         photo_objects.push_back(
             get_chat_photo_object(td_->file_manager_.get(), user_photos->photos[i + request.offset - cache_begin]));
       }
-      request.promise.set_value(td_api::make_object<td_api::chatPhotos>(user_photos->count, std::move(photo_objects)));
+      finished_requests.emplace_back(std::move(request.promise), td_api::make_object<td_api::chatPhotos>(
+                                                                     user_photos->count, std::move(photo_objects)));
       continue;
     }
 
     if (request_index == 0 && ++request.retry_count >= 3) {
-      request.promise.set_error(500, "Failed to get profile photos");
+      finished_requests.emplace_back(std::move(request.promise), Status::Error(500, "Failed to get profile photos"));
       continue;
     }
 
@@ -7134,6 +7140,10 @@ void UserManager::on_get_user_profile_photos(UserId user_id, Result<Unit> &&resu
     if (need_send) {
       send_get_user_photos_query(user_id, user_photos, requests);
     }
+  }
+
+  for (auto &finished_request : finished_requests) {
+    finished_request.first.set_result(std::move(finished_request.second));
   }
 }
 
@@ -7538,11 +7548,15 @@ void UserManager::finish_get_user_saved_music(UserId user_id, Result<Unit> &&res
     }
     auto &requests = pending_get_user_saved_music_requests_[user_id];
     requests = std::move(pending_requests);
-    return send_get_user_saved_music_query(user_id, user_saved_music, requests);
+    // the pointer could be invalidated by the promise
+    return send_get_user_saved_music_query(user_id, add_user_saved_music(user_id), requests);
   }
 
   CHECK(user_saved_music->offset != -1);
   LOG(INFO) << "Have " << user_saved_music->count << " cached saved music files at offset " << user_saved_music->offset;
+  // the promises must be set after the cached data is used, because they can invalidate the pointer
+  vector<std::pair<Promise<td_api::object_ptr<td_api::audios>>, Result<td_api::object_ptr<td_api::audios>>>>
+      finished_requests;
   vector<PendingGetSavedMusicRequest> left_requests;
   for (size_t request_index = 0; request_index < pending_requests.size(); request_index++) {
     auto &request = pending_requests[request_index];
@@ -7550,7 +7564,9 @@ void UserManager::finish_get_user_saved_music(UserId user_id, Result<Unit> &&res
 
     if (request.offset >= user_saved_music->count) {
       // offset if too big
-      request.promise.set_value(td_api::make_object<td_api::audios>(user_saved_music->count, std::move(audio_objects)));
+      finished_requests.emplace_back(
+          std::move(request.promise),
+          td_api::make_object<td_api::audios>(user_saved_music->count, std::move(audio_objects)));
       continue;
     }
 
@@ -7566,12 +7582,14 @@ void UserManager::finish_get_user_saved_music(UserId user_id, Result<Unit> &&res
         audio_objects.push_back(td_->audios_manager_->get_audio_object(
             user_saved_music->saved_music_file_ids[i + request.offset - cache_begin]));
       }
-      request.promise.set_value(td_api::make_object<td_api::audios>(user_saved_music->count, std::move(audio_objects)));
+      finished_requests.emplace_back(
+          std::move(request.promise),
+          td_api::make_object<td_api::audios>(user_saved_music->count, std::move(audio_objects)));
       continue;
     }
 
     if (request_index == 0 && ++request.retry_count >= 3) {
-      request.promise.set_error(500, "Failed to get saved music");
+      finished_requests.emplace_back(std::move(request.promise), Status::Error(500, "Failed to get saved music"));
       continue;
     }
 
@@ -7585,6 +7603,10 @@ void UserManager::finish_get_user_saved_music(UserId user_id, Result<Unit> &&res
     if (need_send) {
       send_get_user_saved_music_query(user_id, user_saved_music, requests);
     }
+  }
+
+  for (auto &finished_request : finished_requests) {
+    finished_request.first.set_result(std::move(finished_request.second));
   }
 }
 
