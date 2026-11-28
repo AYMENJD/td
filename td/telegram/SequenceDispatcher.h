@@ -20,14 +20,7 @@ namespace td {
 
 class SequenceDispatcher final : public NetQueryCallback {
  public:
-  class Parent : public Actor {
-   public:
-    virtual void ready_to_close() = 0;
-    virtual void on_result() = 0;
-  };
   SequenceDispatcher() = default;
-  explicit SequenceDispatcher(ActorShared<Parent> parent) : parent_(std::move(parent)) {
-  }
   void send_with_callback(NetQueryPtr query, ActorShared<NetQueryCallback> callback);
   void on_result(NetQueryPtr query) final;
   void close_silent();
@@ -44,7 +37,6 @@ class SequenceDispatcher final : public NetQueryCallback {
     int32 last_timeout_;
   };
 
-  ActorShared<Parent> parent_;
   size_t id_offset_ = 1;
   vector<Data> data_;
   size_t finish_i_ = 0;  // skip state_ == State::Finish
@@ -68,7 +60,6 @@ class SequenceDispatcher final : public NetQueryCallback {
   void loop() final;
   void try_shrink();
 
-  void timeout_expired() final;
   void hangup() final;
   void tear_down() final;
 };
