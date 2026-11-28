@@ -411,6 +411,8 @@ void AudiosManager::upload_audio(td_api::object_ptr<td_api::inputAudio> &&input_
 }
 
 void AudiosManager::reupload_audio(FileId file_id, Promise<Unit> &&promise) {
+  TRY_STATUS_PROMISE(promise, G()->close_status());
+
   FileUploadId file_upload_id{file_id, FileManager::get_internal_upload_id()};
   CHECK(file_upload_id.is_valid());
   being_uploaded_audio_files_[file_upload_id] = std::move(promise);

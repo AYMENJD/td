@@ -5029,9 +5029,13 @@ void MessagesManager::on_update_live_location_viewed(MessageFullId message_full_
 void MessagesManager::on_update_some_live_location_viewed(Promise<Unit> &&promise) {
   LOG(DEBUG) << "Some live location was viewed";
   if (!are_active_live_location_messages_loaded_) {
-    load_active_live_location_messages(
-        PromiseCreator::lambda([actor_id = actor_id(this), promise = std::move(promise)](Unit result) mutable {
-          send_closure(actor_id, &MessagesManager::on_update_some_live_location_viewed, std::move(promise));
+    load_active_live_location_messages(PromiseCreator::lambda(
+        [actor_id = actor_id(this), promise = std::move(promise)](Result<Unit> &&result) mutable {
+          if (result.is_error()) {
+            promise.set_error(result.move_as_error());
+          } else {
+            send_closure(actor_id, &MessagesManager::on_update_some_live_location_viewed, std::move(promise));
+          }
         }));
     return;
   }
@@ -6954,11 +6958,13 @@ void MessagesManager::after_get_difference() {
 
   if (!pending_on_get_dialogs_.empty()) {
     LOG(INFO) << "Apply postponed results of getDialogs";
-    for (auto &res : pending_on_get_dialogs_) {
+    auto pending_on_get_dialogs = std::move(pending_on_get_dialogs_);
+    reset_to_empty(pending_on_get_dialogs_);
+    for (auto &res : pending_on_get_dialogs) {
       on_get_dialogs(res.folder_id, std::move(res.dialogs), res.total_count, std::move(res.messages),
                      std::move(res.promise));
     }
-    pending_on_get_dialogs_.clear();
+    CHECK(pending_on_get_dialogs_.empty());
   }
 
   if (!postponed_chat_read_inbox_updates_.empty()) {
@@ -7153,8 +7159,14 @@ void MessagesManager::get_channel_difference_if_needed(DialogId dialog_id, Messa
       auto max_message_id = MessageId::get_max_message_id(messages_info.messages);
       return run_after_channel_difference(
           dialog_id, max_message_id,
-          PromiseCreator::lambda([messages_info = std::move(messages_info), promise = std::move(promise)](
-                                     Unit ignored) mutable { promise.set_value(std::move(messages_info)); }),
+          PromiseCreator::lambda(
+              [messages_info = std::move(messages_info), promise = std::move(promise)](Result<Unit> &&result) mutable {
+                if (result.is_error()) {
+                  promise.set_error(result.move_as_error());
+                } else {
+                  promise.set_value(std::move(messages_info));
+                }
+              }),
           source);
     }
   }
@@ -10401,12 +10413,6 @@ void MessagesManager::hangup() {
     pending_created_dialogs_.erase(it);
     query.chat_promise_.set_error(Global::request_aborted_error());
     query.channel_promise_.set_error(Global::request_aborted_error());
-  }
-  while (!get_dialogs_tasks_.empty()) {
-    auto it = get_dialogs_tasks_.begin();
-    auto promise = std::move(it->second.promise);
-    get_dialogs_tasks_.erase(it);
-    promise.set_error(Global::request_aborted_error());
   }
   while (!get_dialogs_tasks_.empty()) {
     auto it = get_dialogs_tasks_.begin();
@@ -13948,7 +13954,9 @@ vector<DialogId> MessagesManager::get_dialogs(DialogListId dialog_list_id, Dialo
   if (!list.pinned_dialogs_.empty() && offset < list.pinned_dialogs_.back() && limit > 0) {
     bool need_reload_pinned_dialogs = false;
     bool need_remove_unknown_secret_chats = false;
-    for (auto &pinned_dialog : list.pinned_dialogs_) {
+    // loading of a pinned chat can remove it from the list of pinned chats, therefore iterate over a copy of the list
+    auto pinned_dialogs = list.pinned_dialogs_;
+    for (auto &pinned_dialog : pinned_dialogs) {
       if (offset < pinned_dialog) {
         auto dialog_id = pinned_dialog.get_dialog_id();
         auto d = get_dialog_force(dialog_id, "get_dialogs pinned");
@@ -13961,7 +13969,7 @@ vector<DialogId> MessagesManager::get_dialogs(DialogListId dialog_list_id, Dialo
           }
           continue;
         }
-        if (d->order == DEFAULT_ORDER) {
+        if (d->order == DEFAULT_ORDER || get_dialog_pinned_order(&list, dialog_id) == DEFAULT_ORDER) {
           LOG(INFO) << "Loaded pinned " << dialog_id << " with default order in " << dialog_list_id;
           continue;
         }
@@ -13979,7 +13987,14 @@ vector<DialogId> MessagesManager::get_dialogs(DialogListId dialog_list_id, Dialo
     if (need_remove_unknown_secret_chats) {
       td::remove_if(list.pinned_dialogs_, [this, &list](const DialogDate &dialog_date) {
         auto dialog_id = dialog_date.get_dialog_id();
-        if (dialog_id.get_type() == DialogType::SecretChat && !have_dialog_force(dialog_id, "get_dialogs 2")) {
+        if (dialog_id.get_type() != DialogType::SecretChat) {
+          return false;
+        }
+        auto pinned_dialog_count = list.pinned_dialogs_.size();
+        auto have_dialog = have_dialog_force(dialog_id, "get_dialogs 2");
+        // the list of pinned chats must not be changed while it is traversed
+        CHECK(list.pinned_dialogs_.size() == pinned_dialog_count);
+        if (!have_dialog) {
           list.pinned_dialog_id_orders_.erase(dialog_id);
           return true;
         }
@@ -14401,6 +14416,8 @@ void MessagesManager::read_all_dialogs_from_list(DialogListId dialog_list_id, Pr
 
   auto query_promise = PromiseCreator::lambda([actor_id = actor_id(this), dialog_list_id, promise = std::move(promise)](
                                                   Result<td_api::object_ptr<td_api::chats>> &&) mutable {
+    TRY_STATUS_PROMISE(promise, G()->close_status());
+
     // it is expected that loading of so many chats will fail, so just ignore the error and result itself
     send_closure(actor_id, &MessagesManager::read_all_dialogs_from_list, dialog_list_id, std::move(promise), true);
   });
@@ -26735,12 +26752,15 @@ void MessagesManager::flush_pending_new_message_notifications(DialogId dialog_id
                       << " because of received notification settings in " << settings_dialog_id;
   auto it = pending_notifications.begin();
   while (it != pending_notifications.end() && it->first == DialogId()) {
+    auto pending_notification_count = pending_notifications.size();
     auto m = get_message(d, it->second);
     if (m == nullptr) {
       VLOG(notifications) << "Can't find " << it->second << " in " << dialog_id << " with pending notification";
     } else if (add_new_message_notification(d, m, true)) {
       on_message_changed(d, m, false, "flush_pending_new_message_notifications");
     }
+    // the list of pending notifications must not be changed while it is traversed
+    CHECK(pending_notifications.size() == pending_notification_count);
     ++it;
   }
 
@@ -34872,6 +34892,12 @@ void MessagesManager::process_get_channel_difference_updates(
   std::map<MessageId, AwaitedMessage> awaited_messages;
   if (postponed_updates_it != postponed_channel_updates_.end()) {
     auto &updates = postponed_updates_it->second;
+    // the list of postponed updates must not be moved or deleted while the updates are processed
+    auto check_postponed_updates = [&] {
+      auto new_postponed_updates_it = postponed_channel_updates_.find(dialog_id);
+      CHECK(new_postponed_updates_it != postponed_channel_updates_.end() &&
+            &new_postponed_updates_it->second == &updates);
+    };
     while (!updates.empty()) {
       auto it = updates.begin();
       auto update_pts = it->second.pts;
@@ -34898,6 +34924,7 @@ void MessagesManager::process_get_channel_difference_updates(
 
       LOG(INFO) << "Skip to be applied from getChannelDifference " << to_string(update);
       promise.set_value(Unit());
+      check_postponed_updates();
     }
     if (updates.empty()) {
       postponed_channel_updates_.erase(postponed_updates_it);
@@ -35350,6 +35377,12 @@ void MessagesManager::after_get_channel_difference(DialogId dialog_id, bool succ
   auto postponed_updates_it = postponed_channel_updates_.find(dialog_id);
   if (postponed_updates_it != postponed_channel_updates_.end()) {
     auto &updates = postponed_updates_it->second;
+    // the list of postponed updates must not be moved or deleted while the updates are processed
+    auto check_postponed_updates = [&] {
+      auto new_postponed_updates_it = postponed_channel_updates_.find(dialog_id);
+      CHECK(new_postponed_updates_it != postponed_channel_updates_.end() &&
+            &new_postponed_updates_it->second == &updates);
+    };
     LOG(INFO) << "Begin to apply " << updates.size() << " postponed channel updates";
     while (!updates.empty()) {
       auto it = updates.begin();
@@ -35367,6 +35400,7 @@ void MessagesManager::after_get_channel_difference(DialogId dialog_id, bool succ
       } else {
         promise.set_value(Unit());
       }
+      check_postponed_updates();
       if (updates.size() != old_size || running_get_channel_difference(dialog_id)) {
         if (success && update_pts - 10000 < pts && update_pts_count == 1) {
           // if getChannelDifference was successful and update PTS is near channel PTS,
@@ -35385,6 +35419,7 @@ void MessagesManager::after_get_channel_difference(DialogId dialog_id, bool succ
           for (auto &update_promise : update_promises) {
             update_promise.set_value(Unit());
           }
+          check_postponed_updates();
         }
         break;
       }

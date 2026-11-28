@@ -534,12 +534,13 @@ std::pair<BackgroundId, BackgroundType> BackgroundManager::search_background(con
   if (it != name_to_background_id_.end()) {
     CHECK(!BackgroundType::is_background_name_local(slug));
 
-    const auto *background = get_background(it->second);
+    auto background_id = it->second;
+    const auto *background = get_background(background_id);
     CHECK(background != nullptr);
-    promise.set_value(Unit());
     BackgroundType type = background->type;
     type.apply_parameters_from_link(name);
-    return {it->second, std::move(type)};
+    promise.set_value(Unit());
+    return {background_id, std::move(type)};
   }
 
   if (slug.empty()) {

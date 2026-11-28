@@ -43,7 +43,6 @@ namespace td {
 // last_sent_i points to the last sent query in current chain.
 //
 void SequenceDispatcher::send_with_callback(NetQueryPtr query, ActorShared<NetQueryCallback> callback) {
-  cancel_timeout();
   query->debug("Waiting at SequenceDispatcher");
   auto query_weak_ref = query.get_weak();
   data_.push_back(Data{State::Start, std::move(query_weak_ref), std::move(query), std::move(callback), 0, 0, 0});
@@ -70,16 +69,10 @@ void SequenceDispatcher::try_resend_query(Data &data, NetQueryPtr query) {
   size_t pos = &data - &data_[0];
   CHECK(pos < data_.size());
   CHECK(data.state_ == State::Dummy);
+  CHECK(!data.callback_.empty());
   data.state_ = State::Wait;
   wait_cnt_++;
   auto token = pos + id_offset_;
-  // TODO: if query is ok, use NetQueryCallback::on_result
-  if (data.callback_.empty()) {
-    do_finish(data);
-    send_closure_later(G()->td(), &Td::on_result, std::move(query));
-    loop();
-    return;
-  }
   auto promise = PromiseCreator::lambda([&, self = actor_shared(this, token)](NetQueryPtr query) mutable {
     if (!query.empty()) {
       send_closure(std::move(self), &SequenceDispatcher::on_resend_ok, std::move(query));
@@ -129,9 +122,6 @@ void SequenceDispatcher::do_resend(Data &data) {
 void SequenceDispatcher::do_finish(Data &data) {
   CHECK(data.state_ == State::Dummy);
   data.state_ = State::Finish;
-  if (!parent_.empty()) {
-    send_closure(parent_, &Parent::on_result);
-  }
 }
 
 void SequenceDispatcher::on_result(NetQueryPtr query) {
@@ -196,10 +186,6 @@ void SequenceDispatcher::loop() {
   }
 
   try_shrink();
-
-  if (finish_i_ == data_.size() && !parent_.empty()) {
-    set_timeout_in(5);
-  }
 }
 
 void SequenceDispatcher::try_shrink() {
@@ -217,16 +203,6 @@ void SequenceDispatcher::try_shrink() {
     id_offset_ += finish_i_;
     finish_i_ = 0;
   }
-}
-
-void SequenceDispatcher::timeout_expired() {
-  if (finish_i_ != data_.size()) {
-    return;
-  }
-  CHECK(!parent_.empty());
-  set_timeout_in(1);
-  LOG(DEBUG) << "SequenceDispatcher ready to close";
-  send_closure(parent_, &Parent::ready_to_close);
 }
 
 void SequenceDispatcher::hangup() {
@@ -251,40 +227,6 @@ void SequenceDispatcher::close_silent() {
     }
   }
   stop();
-}
-
-void MultiSequenceDispatcherOld::send(NetQueryPtr query) {
-  auto callback = query->move_callback();
-  auto chain_ids = query->get_chain_ids();
-  query->set_in_sequence_dispatcher(true);
-  CHECK(all_of(chain_ids, [](auto chain_id) { return chain_id != 0; }));
-  CHECK(!chain_ids.empty());
-  auto sequence_id = chain_ids[0];
-
-  auto it_ok = dispatchers_.emplace(sequence_id, Data{0, ActorOwn<SequenceDispatcher>()});
-  auto &data = it_ok.first->second;
-  if (it_ok.second) {
-    LOG(DEBUG) << "Create SequenceDispatcher " << sequence_id;
-    data.dispatcher_ = create_actor<SequenceDispatcher>("SequenceDispatcher", actor_shared(this, sequence_id));
-  }
-  data.cnt_++;
-  query->debug(PSTRING() << "send to SequenceDispatcher " << sequence_id);
-  send_closure(data.dispatcher_, &SequenceDispatcher::send_with_callback, std::move(query), std::move(callback));
-}
-
-void MultiSequenceDispatcherOld::on_result() {
-  auto it = dispatchers_.find(get_link_token());
-  CHECK(it != dispatchers_.end());
-  it->second.cnt_--;
-}
-
-void MultiSequenceDispatcherOld::ready_to_close() {
-  auto it = dispatchers_.find(get_link_token());
-  CHECK(it != dispatchers_.end());
-  if (it->second.cnt_ == 0) {
-    LOG(DEBUG) << "Close SequenceDispatcher " << get_link_token();
-    dispatchers_.erase(it);
-  }
 }
 
 class MultiSequenceDispatcherImpl final : public MultiSequenceDispatcher {

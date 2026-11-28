@@ -88,6 +88,13 @@ inline void ActorInfo::destroy_actor() {
       break;
   }
   actor_ = nullptr;
+
+  // destroying of an event can send a new event to the actor, which will be added to the mailbox,
+  // therefore, the events must be destroyed one by one while the mailbox is in a consistent state
+  for (size_t i = 0; i < mailbox_.size(); i++) {
+    auto event = std::move(mailbox_[i]);
+    event.clear();
+  }
   mailbox_.clear();
 }
 

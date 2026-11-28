@@ -4213,10 +4213,10 @@ int32 GroupCallManager::cancel_join_group_call_request(InputGroupCallId input_gr
   }
   tde2e_api::key_destroy(it->second->private_key_id);
   tde2e_api::key_destroy(it->second->public_key_id);
-  it->second->promise.set_error(200, "Canceled");
-  auto audio_source = it->second->audio_source;
+  auto request = std::move(it->second);
   pending_join_requests_.erase(it);
-  return audio_source;
+  request->promise.set_error(200, "Canceled");
+  return request->audio_source;
 }
 
 int32 GroupCallManager::cancel_join_group_call_presentation_request(InputGroupCallId input_group_call_id) {
@@ -4229,10 +4229,10 @@ int32 GroupCallManager::cancel_join_group_call_presentation_request(InputGroupCa
   if (!it->second->query_ref.empty()) {
     cancel_query(it->second->query_ref);
   }
-  it->second->promise.set_error(200, "Canceled");
-  auto audio_source = it->second->audio_source;
+  auto request = std::move(it->second);
   pending_join_presentation_requests_.erase(it);
-  return audio_source;
+  request->promise.set_error(200, "Canceled");
+  return request->audio_source;
 }
 
 void GroupCallManager::get_group_call_streams(GroupCallId group_call_id,
@@ -5129,17 +5129,19 @@ void GroupCallManager::finish_join_group_call(InputGroupCallId input_group_call_
   }
   tde2e_api::key_destroy(it->second->private_key_id);
   tde2e_api::key_destroy(it->second->public_key_id);
-  it->second->promise.set_error(std::move(error));
-  auto as_dialog_id = it->second->as_dialog_id;
+  auto request = std::move(it->second);
   pending_join_requests_.erase(it);
+  request->promise.set_error(std::move(error));
+  auto as_dialog_id = request->as_dialog_id;
 
   if (G()->close_flag()) {
     return;
   }
 
   GroupCall *group_call = get_group_call(input_group_call_id);
+  CHECK(group_call != nullptr);
   bool need_update = false;
-  if (group_call != nullptr && group_call->is_being_joined) {
+  if (group_call->is_being_joined) {
     bool old_is_joined = get_group_call_is_joined(group_call);
     group_call->is_being_joined = false;
     need_update |= old_is_joined != get_group_call_is_joined(group_call);
@@ -5147,7 +5149,6 @@ void GroupCallManager::finish_join_group_call(InputGroupCallId input_group_call_
   group_call->old_messages.clear();
   remove_recent_group_call_speaker(input_group_call_id, as_dialog_id);
   if (try_clear_group_call_participants(input_group_call_id)) {
-    CHECK(group_call != nullptr);
     need_update = true;
   }
   if (need_update && group_call->is_inited) {
@@ -5155,7 +5156,7 @@ void GroupCallManager::finish_join_group_call(InputGroupCallId input_group_call_
   }
   process_group_call_after_join_requests(input_group_call_id, "finish_join_group_call");
 
-  if (group_call != nullptr && group_call->dialog_id.is_valid()) {
+  if (group_call->dialog_id.is_valid()) {
     update_group_call_dialog(group_call, "finish_join_group_call", false);
     td_->dialog_manager_->reload_dialog_info_full(group_call->dialog_id, "finish_join_group_call");
   }

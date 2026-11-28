@@ -3083,7 +3083,7 @@ void UpdatesManager::add_pending_pts_update(tl_object_ptr<telegram_api::Update> 
   CHECK(update != nullptr);
   CHECK(source != nullptr);
   LOG(INFO) << "Receive from " << source << " with pts_count = " << pts_count << " pending " << to_string(update);
-  if (pts_count < 0 || new_pts <= pts_count) {
+  if (pts_count < 0 || new_pts <= pts_count || new_pts == std::numeric_limits<int32>::max()) {
     LOG(ERROR) << "Receive update with wrong PTS = " << new_pts << " or pts_count = " << pts_count << " from " << source
                << ": " << oneline(to_string(update));
     return promise.set_value(Unit());
@@ -3602,6 +3602,9 @@ void UpdatesManager::process_pending_pts_updates() {
       set_pts(update.pts, "process_pending_pts_updates")
           .set_value(Unit());  // TODO can't set until data are really stored on persistent storage
 
+      // the update must not be deleted while it is processed
+      CHECK(!pending_pts_updates_.empty() && pending_pts_updates_.begin() == update_it);
+
       if (accumulated_pts_ != -1) {
         CHECK(update.pts <= accumulated_pts_);
         CHECK(accumulated_pts_count_ >= update.pts_count);
@@ -3611,6 +3614,7 @@ void UpdatesManager::process_pending_pts_updates() {
       LOG(INFO) << "Skip because of pts_count == 0 " << to_string(update.update);
     }
     update.promise.set_value(Unit());
+    CHECK(!pending_pts_updates_.empty() && pending_pts_updates_.begin() == update_it);
     pending_pts_updates_.erase(update_it);
   }
   if (applied_update_count > 0) {

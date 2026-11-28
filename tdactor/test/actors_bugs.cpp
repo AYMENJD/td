@@ -220,3 +220,115 @@ TEST(Actors, migrate_actor_during_finish) {
   }
 }
 #endif
+
+template <class ActorT>
+class SendClosureInDestructor {
+ public:
+  static td::int32 count;
+
+  SendClosureInDestructor(td::ActorId<ActorT> actor_id, td::int32 depth) : actor_id_(actor_id), depth_(depth) {
+    count++;
+  }
+  SendClosureInDestructor(const SendClosureInDestructor &) = delete;
+  SendClosureInDestructor &operator=(const SendClosureInDestructor &) = delete;
+  SendClosureInDestructor(SendClosureInDestructor &&other) noexcept : actor_id_(other.actor_id_), depth_(other.depth_) {
+    other.depth_ = -1;
+  }
+  SendClosureInDestructor &operator=(SendClosureInDestructor &&) = delete;
+  ~SendClosureInDestructor() {
+    if (depth_ < 0) {
+      return;
+    }
+    count--;
+    if (depth_ > 0) {
+      td::send_closure(actor_id_, &ActorT::receive, SendClosureInDestructor(actor_id_, depth_ - 1));
+      td::send_closure(actor_id_, &ActorT::receive, SendClosureInDestructor(actor_id_, depth_ - 1));
+    }
+  }
+
+ private:
+  td::ActorId<ActorT> actor_id_;
+  td::int32 depth_;
+};
+
+template <class ActorT>
+td::int32 SendClosureInDestructor<ActorT>::count;
+
+template <bool need_start_up>
+class ClosureReceiver final : public td::Actor {
+ public:
+  static td::int32 count;
+
+  void receive(SendClosureInDestructor<ClosureReceiver> &&sender) {
+    // the sender isn't moved from the closure, so it is destroyed together with the event
+    count++;
+  }
+};
+
+template <bool need_start_up>
+td::int32 ClosureReceiver<need_start_up>::count;
+
+namespace td {
+template <>
+class ActorTraits<ClosureReceiver<false>> {
+ public:
+  static constexpr bool need_context = false;
+  static constexpr bool need_start_up = false;
+};
+}  // namespace td
+
+TEST(Actors, send_closure_during_event_destroying) {
+  using Receiver = ClosureReceiver<true>;
+  using Sender = SendClosureInDestructor<Receiver>;
+  Receiver::count = 0;
+
+  td::ConcurrentScheduler sched(0, 0);
+  auto receiver = sched.create_actor_unsafe<Receiver>(0, "ClosureReceiver");
+  sched.start();
+  {
+    auto guard = sched.get_main_guard();
+    for (int i = 0; i < 20; i++) {
+      td::send_closure_later(receiver, &Receiver::receive, Sender(receiver.get(), 3));
+    }
+  }
+  // each event sends 2 new events to the actor when it is destroyed after execution
+  for (int i = 0; i < 100 && Sender::count != 0; i++) {
+    sched.run_main(0);
+  }
+  ASSERT_EQ(0, Sender::count);
+  ASSERT_EQ(20 * 15, Receiver::count);
+  {
+    auto guard = sched.get_main_guard();
+    receiver.reset();
+  }
+  sched.finish();
+}
+
+template <bool need_start_up>
+static void test_send_closure_during_mailbox_destroying() {
+  using Receiver = ClosureReceiver<need_start_up>;
+  using Sender = SendClosureInDestructor<Receiver>;
+  Receiver::count = 0;
+
+  td::ConcurrentScheduler sched(0, 0);
+  sched.start();
+  {
+    auto guard = sched.get_main_guard();
+    auto receiver = td::make_unique<Receiver>();
+    auto receiver_id = td::register_actor("ClosureReceiver", receiver.get()).release();
+    for (int i = 0; i < 20; i++) {
+      td::send_closure_later(receiver_id, &Receiver::receive, Sender(receiver_id, 3));
+    }
+    // the actor is destroyed with unprocessed events,
+    // each of which sends 2 new events to the actor when it is destroyed
+    receiver.reset();
+  }
+  sched.finish();
+  ASSERT_EQ(0, Sender::count);
+  ASSERT_EQ(0, Receiver::count);
+}
+
+TEST(Actors, send_closure_during_mailbox_destroying) {
+  test_send_closure_during_mailbox_destroying<true>();
+  test_send_closure_during_mailbox_destroying<false>();
+}

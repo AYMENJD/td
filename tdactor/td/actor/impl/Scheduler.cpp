@@ -547,7 +547,10 @@ void Scheduler::flush_mailbox(ActorInfo *actor_info) {
   EventGuard guard(this, actor_info);
   size_t i = 0;
   for (; i < mailbox_size && guard.can_run(); i++) {
-    do_event(actor_info, std::move(mailbox[i]));
+    // destroying of the event can send a new event to the actor, which will be added to the mailbox,
+    // therefore, the event must be destroyed before the processed events are erased from the mailbox
+    auto event = std::move(mailbox[i]);
+    do_event(actor_info, std::move(event));
   }
   mailbox.erase(mailbox.begin(), mailbox.begin() + i);
 }

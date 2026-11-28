@@ -877,23 +877,26 @@ void WebPagesManager::update_web_page(unique_ptr<WebPage> web_page, WebPageId we
   }
   page = std::move(web_page);
 
+  // web_pages_ can be changed below, so the reference to the map element must not be used anymore
+  auto *new_web_page = page.get();
+
   // must be called before any other action for correct behavior of get_url_file_source_id
-  if (!page->url_.empty()) {
-    on_get_web_page_by_url(page->url_, web_page_id, from_database);
+  if (!new_web_page->url_.empty()) {
+    on_get_web_page_by_url(new_web_page->url_, web_page_id, from_database);
   }
 
-  update_web_page_instant_view(web_page_id, page->instant_view_, std::move(old_instant_view));
+  update_web_page_instant_view(web_page_id, new_web_page->instant_view_, std::move(old_instant_view));
 
-  auto new_file_ids = get_web_page_file_ids(page.get());
+  auto new_file_ids = get_web_page_file_ids(new_web_page);
   if (old_file_ids != new_file_ids) {
-    td_->file_manager_->change_files_source(get_web_page_file_source_id(page.get()), old_file_ids, new_file_ids,
+    td_->file_manager_->change_files_source(get_web_page_file_source_id(new_web_page), old_file_ids, new_file_ids,
                                             "update_web_page");
   }
 
   if (is_changed && !from_database) {
     on_web_page_changed(web_page_id, true);
 
-    save_web_page(page.get(), web_page_id, from_binlog);
+    save_web_page(new_web_page, web_page_id, from_binlog);
   }
 }
 
@@ -1134,6 +1137,10 @@ void WebPagesManager::register_poll_web_pages(PollId poll_id, vector<WebPageId> 
     poll_web_pages_.erase(it);
     return;
   }
+  for (auto web_page_id : web_page_ids) {
+    have_web_page_force(web_page_id);
+  }
+
   auto &old_web_page_ids = poll_web_pages_[poll_id];
   if (old_web_page_ids == web_page_ids) {
     return;
@@ -1146,7 +1153,7 @@ void WebPagesManager::register_poll_web_pages(PollId poll_id, vector<WebPageId> 
       bool is_inserted = web_page_polls_[web_page_id].insert(poll_id).second;
       LOG_CHECK(is_inserted) << web_page_id << ' ' << poll_id;
 
-      if (!have_web_page_force(web_page_id)) {
+      if (!have_web_page(web_page_id)) {
         LOG(INFO) << "Waiting for " << web_page_id << " needed in " << poll_id;
         pending_web_pages_timeout_.add_timeout_in(web_page_id.get(), 1.0);
       }

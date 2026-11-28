@@ -51,8 +51,8 @@ void Poll::unsubscribe(PollableFdRef fd_ref) {
   };
   for (auto it = pollfds_.begin(); it != pollfds_.end(); ++it) {
     if (it->fd == fd.native_fd().fd()) {
-      pollfds_.erase(it);
       fds_.erase(fds_.begin() + (it - pollfds_.begin()));
+      pollfds_.erase(it);
       return;
     }
   }
