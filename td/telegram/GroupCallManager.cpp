@@ -4213,10 +4213,10 @@ int32 GroupCallManager::cancel_join_group_call_request(InputGroupCallId input_gr
   }
   tde2e_api::key_destroy(it->second->private_key_id);
   tde2e_api::key_destroy(it->second->public_key_id);
-  it->second->promise.set_error(200, "Canceled");
-  auto audio_source = it->second->audio_source;
+  auto request = std::move(it->second);
   pending_join_requests_.erase(it);
-  return audio_source;
+  request->promise.set_error(200, "Canceled");
+  return request->audio_source;
 }
 
 int32 GroupCallManager::cancel_join_group_call_presentation_request(InputGroupCallId input_group_call_id) {
@@ -4229,10 +4229,10 @@ int32 GroupCallManager::cancel_join_group_call_presentation_request(InputGroupCa
   if (!it->second->query_ref.empty()) {
     cancel_query(it->second->query_ref);
   }
-  it->second->promise.set_error(200, "Canceled");
-  auto audio_source = it->second->audio_source;
+  auto request = std::move(it->second);
   pending_join_presentation_requests_.erase(it);
-  return audio_source;
+  request->promise.set_error(200, "Canceled");
+  return request->audio_source;
 }
 
 void GroupCallManager::get_group_call_streams(GroupCallId group_call_id,
@@ -5129,9 +5129,10 @@ void GroupCallManager::finish_join_group_call(InputGroupCallId input_group_call_
   }
   tde2e_api::key_destroy(it->second->private_key_id);
   tde2e_api::key_destroy(it->second->public_key_id);
-  it->second->promise.set_error(std::move(error));
-  auto as_dialog_id = it->second->as_dialog_id;
+  auto request = std::move(it->second);
   pending_join_requests_.erase(it);
+  request->promise.set_error(std::move(error));
+  auto as_dialog_id = request->as_dialog_id;
 
   if (G()->close_flag()) {
     return;
