@@ -641,6 +641,8 @@ FileReferenceManager::Destination FileReferenceManager::on_query_result(Destinat
     query->active_queries -= sub;
     CHECK(query->active_queries >= 0);
     auto new_proxy = on_query_result(query->proxy, file_source_id, std::move(status), query->active_queries);
+    // the query must not be changed by the promises set in the recursive call
+    CHECK(node.query.get() == query);
     query->proxy = new_proxy;
     run_node(dest.node_id);
     return new_proxy;
