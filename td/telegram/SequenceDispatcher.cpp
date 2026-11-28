@@ -135,19 +135,23 @@ void SequenceDispatcher::do_finish(Data &data) {
 }
 
 void SequenceDispatcher::on_result(NetQueryPtr query) {
-  auto &data = data_from_token();
-  size_t pos = &data - &data_[0];
-  CHECK(pos < data_.size());
+  // check_timeout can call loop(), which can remove finished queries from the beginning of data_,
+  // so the queries must be addressed by their tokens instead of references or positions
+  data_from_token();
+  auto token = narrow_cast<size_t>(get_link_token());
 
   if (query->last_timeout_ != 0) {
-    for (auto i = pos + 1; i < data_.size(); i++) {
-      data_[i].total_timeout_ += query->last_timeout_;
-      data_[i].last_timeout_ = query->last_timeout_;
-      check_timeout(data_[i]);
+    for (auto next_token = token + 1; next_token - id_offset_ < data_.size(); next_token++) {
+      auto &next_data = data_[next_token - id_offset_];
+      next_data.total_timeout_ += query->last_timeout_;
+      next_data.last_timeout_ = query->last_timeout_;
+      check_timeout(next_data);
     }
     query->last_timeout_ = 0;
   }
 
+  CHECK(token - id_offset_ < data_.size());
+  auto &data = data_[token - id_offset_];
   if (query->is_error() && (query->error().code() == NetQuery::ResendInvokeAfter ||
                             (query->error().code() == 400 && (query->error().message() == "MSG_WAIT_FAILED" ||
                                                               query->error().message() == "MSG_WAIT_TIMEOUT")))) {
