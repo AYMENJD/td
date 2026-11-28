@@ -11,7 +11,6 @@
 #include "td/actor/actor.h"
 
 #include "td/utils/common.h"
-#include "td/utils/FlatHashMap.h"
 #include "td/utils/Random.h"
 #include "td/utils/Slice.h"
 
@@ -72,23 +71,6 @@ class SequenceDispatcher final : public NetQueryCallback {
   void timeout_expired() final;
   void hangup() final;
   void tear_down() final;
-};
-
-class MultiSequenceDispatcherOld final : public SequenceDispatcher::Parent {
- public:
-  void send(NetQueryPtr query);
-  static ActorOwn<MultiSequenceDispatcherOld> create(Slice name) {
-    return create_actor<MultiSequenceDispatcherOld>(name);
-  }
-
- private:
-  struct Data {
-    int32 cnt_;
-    ActorOwn<SequenceDispatcher> dispatcher_;
-  };
-  FlatHashMap<uint64, Data> dispatchers_;
-  void on_result() final;
-  void ready_to_close() final;
 };
 
 class MultiSequenceDispatcher : public NetQueryCallback {

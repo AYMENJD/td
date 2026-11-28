@@ -257,40 +257,6 @@ void SequenceDispatcher::close_silent() {
   stop();
 }
 
-void MultiSequenceDispatcherOld::send(NetQueryPtr query) {
-  auto callback = query->move_callback();
-  auto chain_ids = query->get_chain_ids();
-  query->set_in_sequence_dispatcher(true);
-  CHECK(all_of(chain_ids, [](auto chain_id) { return chain_id != 0; }));
-  CHECK(!chain_ids.empty());
-  auto sequence_id = chain_ids[0];
-
-  auto it_ok = dispatchers_.emplace(sequence_id, Data{0, ActorOwn<SequenceDispatcher>()});
-  auto &data = it_ok.first->second;
-  if (it_ok.second) {
-    LOG(DEBUG) << "Create SequenceDispatcher " << sequence_id;
-    data.dispatcher_ = create_actor<SequenceDispatcher>("SequenceDispatcher", actor_shared(this, sequence_id));
-  }
-  data.cnt_++;
-  query->debug(PSTRING() << "send to SequenceDispatcher " << sequence_id);
-  send_closure(data.dispatcher_, &SequenceDispatcher::send_with_callback, std::move(query), std::move(callback));
-}
-
-void MultiSequenceDispatcherOld::on_result() {
-  auto it = dispatchers_.find(get_link_token());
-  CHECK(it != dispatchers_.end());
-  it->second.cnt_--;
-}
-
-void MultiSequenceDispatcherOld::ready_to_close() {
-  auto it = dispatchers_.find(get_link_token());
-  CHECK(it != dispatchers_.end());
-  if (it->second.cnt_ == 0) {
-    LOG(DEBUG) << "Close SequenceDispatcher " << get_link_token();
-    dispatchers_.erase(it);
-  }
-}
-
 class MultiSequenceDispatcherImpl final : public MultiSequenceDispatcher {
  public:
   void send(NetQueryPtr query) final {
